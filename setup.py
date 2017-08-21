@@ -8,4 +8,7 @@ setup(name="confluent_kafka_helpers",
       author_email="support@fyndiq.com",
       license="MIT",
       packages=["confluent_kafka_helpers"],
+      install_requires=[
+          'confluent-kafka==0.11.0',
+      ],
       zip_safe=False)
