@@ -28,22 +28,20 @@ def default_key_filter(key, message_key):
 
 class AvroMessageLoader:
 
-    def __init__(self, loader_config):
+    def __init__(self, loader_config, schema_registry):
         self.topic = loader_config['topic']
-        self.default_key_schema = loader_config['default_key_schema']
+        self.key_subject_name = loader_config['key_subject_name']
         self.num_partitions = loader_config['num_partitions']
-        self.schema_registry_url = loader_config['consumer']['schema.registry.url']
 
         self.consumer = AvroConsumer(loader_config['consumer'])
-
-        schema_registry = CachedSchemaRegistryClient(
-            url=self.schema_registry_url
-        )
+        self.schema_registry = schema_registry
         self.serializer = MessageSerializer(schema_registry)
 
     def _serialize_avro_key(self, key):
+        subject = self.key_subject_name
+        _, schema, _ = self.schema_registry.get_latest_schema(subject)
         key = self.serializer.encode_record_with_schema(
-            self.topic, self.default_key_schema, key, is_key=True
+            self.topic, schema, key, is_key=True
         )
         return key
 
