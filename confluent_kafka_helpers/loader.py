@@ -57,6 +57,8 @@ class AvroMessageLoader:
                 ID of the message.
             key_filter: Callable used to filter the key. Usually we
                 are only interested in messages with the same keys.
+            partitioner: Callable used to calculate which partition
+                the message was stored in when produced.
 
         Raises:
             KafkaException
