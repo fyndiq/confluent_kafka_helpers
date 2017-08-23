@@ -34,7 +34,6 @@ class AvroMessageLoader:
         self.num_partitions = loader_config['num_partitions']
         self.schema_registry_url = loader_config['consumer']['schema.registry.url']
 
-        # TODO: make sure we only create the consumer once
         self.consumer = AvroConsumer(loader_config['consumer'])
 
     def _serialize_avro_key(self, key):
