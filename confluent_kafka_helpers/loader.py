@@ -1,12 +1,11 @@
 import zlib
+from functools import partial
 
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
-from confluent_kafka.avro.cached_schema_registry_client import (
-    CachedSchemaRegistryClient)
-from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 
 from confluent_kafka_helpers import logger
+from confluent_kafka_helpers.schema_registry import avro_key_serializer
 
 
 def default_partitioner(key, num_partitions):
@@ -28,22 +27,19 @@ def default_key_filter(key, message_key):
 
 class AvroMessageLoader:
 
-    def __init__(self, loader_config, schema_registry):
+    def __init__(self, loader_config):
         self.topic = loader_config['topic']
         self.key_subject_name = loader_config['key_subject_name']
         self.num_partitions = loader_config['num_partitions']
 
-        self.consumer = AvroConsumer(loader_config['consumer'])
-        self.schema_registry = schema_registry
-        self.serializer = MessageSerializer(schema_registry)
-
-    def _serialize_avro_key(self, key):
-        subject = self.key_subject_name
-        _, schema, _ = self.schema_registry.get_latest_schema(subject)
-        key = self.serializer.encode_record_with_schema(
-            self.topic, schema, key, is_key=True
+        schema_registry_url = loader_config['consumer']['schema.registry.url']
+        self.avro_key_serializer = partial(
+            avro_key_serializer,
+            schema_registry_url,
+            self.key_subject_name,
+            self.topic
         )
-        return key
+        self.consumer = AvroConsumer(loader_config['consumer'])
 
     def load(self, key, key_filter=default_key_filter,
              partitioner=default_partitioner):
@@ -70,7 +66,7 @@ class AvroMessageLoader:
         #
         # if we know the key and total number of partitions we can
         #     deterministically calculate the partition number that was used.
-        serialized_key = self._serialize_avro_key(key)
+        serialized_key = self.avro_key_serializer(key)
         partition_num = partitioner(serialized_key, self.num_partitions)
         partition = TopicPartition(self.topic, partition_num, 0)
 
