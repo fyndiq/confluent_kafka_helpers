@@ -36,12 +36,13 @@ class AvroMessageLoader:
 
         self.consumer = AvroConsumer(loader_config['consumer'])
 
-    def _serialize_avro_key(self, key):
         schema_registry = CachedSchemaRegistryClient(
             url=self.schema_registry_url
         )
-        serializer = MessageSerializer(schema_registry)
-        key = serializer.encode_record_with_schema(
+        self.serializer = MessageSerializer(schema_registry)
+
+    def _serialize_avro_key(self, key):
+        key = self.serializer.encode_record_with_schema(
             self.topic, self.default_key_schema, key, is_key=True
         )
         return key
@@ -49,7 +50,7 @@ class AvroMessageLoader:
     def load(self, key, key_filter=default_key_filter,
              partitioner=default_partitioner):
         """
-        Load all stored messages for a key.
+        Load all stored messages for the given key.
 
         Args:
             key: Key used when the event was stored, probably the
@@ -63,11 +64,11 @@ class AvroMessageLoader:
             KafkaException
 
         Returns:
-            list: A list with all historical messages.
+            list: A list with all stored messages.
         """
         # since all messages with the same key are guaranteed to be stored
         #    in the same topic partition (using default partitioner) we can
-        #    optimize the loading by only reading from that partition.
+        #    optimize the loading by only reading from that specific partition.
         #
         # if we know the key and total number of partitions we can
         #     deterministically calculate the partition number that was used.
