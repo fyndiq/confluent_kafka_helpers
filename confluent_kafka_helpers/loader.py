@@ -16,17 +16,26 @@ def default_partitioner(key, num_partitions):
     return zlib.crc32(key) % num_partitions
 
 
+def default_key_filter(key, message_key):
+    """
+    Only load messages if the condition is true.
+
+    Default we are only interested in keys that belong
+    to the same aggregate.
+    """
+    return key == message_key
+
+
 class AvroMessageLoader:
 
-    def __init__(self, consumer_config, schema_registry_url, topic,
-                 default_key_schema, num_partitions):
-        # TODO: make sure we only create the consumer once
-        self.consumer = AvroConsumer(consumer_config)
+    def __init__(self, loader_config):
+        self.topic = loader_config['topic']
+        self.default_key_schema = loader_config['default_key_schema']
+        self.num_partitions = loader_config['num_partitions']
+        self.schema_registry_url = loader_config['consumer']['schema.registry.url']
 
-        self.default_key_schema = default_key_schema
-        self.num_partitions = num_partitions
-        self.schema_registry_url = schema_registry_url
-        self.topic = topic
+        # TODO: make sure we only create the consumer once
+        self.consumer = AvroConsumer(loader_config['consumer'])
 
     def _serialize_avro_key(self, key):
         schema_registry = CachedSchemaRegistryClient(
@@ -38,10 +47,10 @@ class AvroMessageLoader:
         )
         return key
 
-    def load(self, key, key_filter=lambda *args, **kwargs: True,
+    def load(self, key, key_filter=default_key_filter,
              partitioner=default_partitioner):
         """
-        Load all historical messages for a key.
+        Load all stored messages for a key.
 
         Args:
             key: Key used when the event was stored, probably the
@@ -62,7 +71,7 @@ class AvroMessageLoader:
         # if we know the key and total number of partitions we can
         #     deterministically calculate the partition number that was used.
         serialized_key = self._serialize_avro_key(key)
-        partition_num = self._get_partition(serialized_key)
+        partition_num = partitioner(serialized_key, self.num_partitions)
         partition = TopicPartition(self.topic, partition_num, 0)
 
         self.consumer.assign([partition])
