@@ -5,7 +5,7 @@ from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
 
 from confluent_kafka_helpers import logger
-from confluent_kafka_helpers.schema_registry import avro_key_serializer
+from confluent_kafka_helpers.schema_registry import SchemaRegistry
 
 
 def default_partitioner(key, num_partitions):
@@ -33,9 +33,10 @@ class AvroMessageLoader:
         self.num_partitions = loader_config['num_partitions']
 
         schema_registry_url = loader_config['consumer']['schema.registry.url']
-        self.avro_key_serializer = partial(
-            avro_key_serializer,
-            schema_registry_url,
+        schema_registry = SchemaRegistry(schema_registry_url)
+
+        self.key_serializer = partial(
+            schema_registry.key_serializer,
             self.key_subject_name,
             self.topic
         )
@@ -66,7 +67,7 @@ class AvroMessageLoader:
         #
         # if we know the key and total number of partitions we can
         #     deterministically calculate the partition number that was used.
-        serialized_key = self.avro_key_serializer(key)
+        serialized_key = self.key_serializer(key)
         partition_num = partitioner(serialized_key, self.num_partitions)
         partition = TopicPartition(self.topic, partition_num, 0)
 

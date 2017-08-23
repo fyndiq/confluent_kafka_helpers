@@ -3,23 +3,21 @@ from confluent_kafka.avro.cached_schema_registry_client import (
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 
 
-def get_client(schema_registry_url):
-    client = CachedSchemaRegistryClient(
-        url=schema_registry_url
-    )
-    return client
+class SchemaRegistry:
 
+    def __init__(self, schema_registry_url):
+        self.client = CachedSchemaRegistryClient(
+            url=schema_registry_url
+        )
 
-def get_latest_schema(client, subject):
-    schema_id, schema, version = client.get_latest_schema(subject)
-    return schema
+    def get_latest_schema(self, subject):
+        schema_id, schema, version = self.client.get_latest_schema(subject)
+        return schema
 
-
-def avro_key_serializer(schema_registry_url, subject, topic, key):
-    client = get_client(schema_registry_url)
-    serializer = MessageSerializer(client)
-    schema = get_latest_schema(client, subject)
-    key = serializer.encode_record_with_schema(
-        topic, schema, key, is_key=True
-    )
-    return key
+    def key_serializer(self, subject, topic, key):
+        serializer = MessageSerializer(self.client)
+        schema = self.get_latest_schema(subject)
+        key = serializer.encode_record_with_schema(
+            topic, schema, key, is_key=True
+        )
+        return key
