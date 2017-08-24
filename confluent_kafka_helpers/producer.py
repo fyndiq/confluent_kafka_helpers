@@ -4,12 +4,14 @@ from confluent_kafka_helpers import logger
 from confluent_kafka_helpers.schema_registry import SchemaRegistry
 
 
+# TODO: subclass AvroProducer?
 class AvroProducer:
 
     def __init__(self, producer_config):
         schema_registry_url = producer_config['schema.registry.url']
         key_subject_name = producer_config.pop('key_subject_name')
         value_subject_name = producer_config.pop('value_subject_name')
+        self.default_topic = producer_config.pop('default_topic')
 
         # fetch latest schemas from schema registry
         schema_registry = SchemaRegistry(schema_registry_url)
@@ -22,8 +24,12 @@ class AvroProducer:
             default_value_schema=value_schema
         )
 
-    def publish(self, topic, key, value, **kwargs):
-        logger.info("Publishing message", topic=topic, key=key,
+    def produce(self, key, value, **kwargs):
+        topic = kwargs.get('topic', None)
+        if not topic:
+            topic = self.default_topic
+
+        logger.info("Producing message", topic=topic, key=key,
                     value=value)
         self.producer.produce(topic=topic, key=key, value=value)
         self.producer.flush()
