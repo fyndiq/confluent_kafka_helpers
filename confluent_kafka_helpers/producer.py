@@ -11,6 +11,7 @@ class AvroProducer:
         schema_registry_url = producer_config['schema.registry.url']
         key_subject_name = producer_config.pop('key_subject_name')
         value_subject_name = producer_config.pop('value_subject_name')
+        self.value_serializer = producer_config.pop('message_value_serializer', None)
         self.default_topic = producer_config.pop('default_topic')
 
         # fetch latest schemas from schema registry
@@ -28,6 +29,9 @@ class AvroProducer:
         topic = kwargs.get('topic', None)
         if not topic:
             topic = self.default_topic
+
+        if self.value_serializer:
+            value = self.value_serializer(value)
 
         logger.info("Producing message", topic=topic, key=key,
                     value=value)
