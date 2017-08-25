@@ -5,7 +5,7 @@ from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
 
 from confluent_kafka_helpers import logger
-from confluent_kafka_helpers.schema_registry import SchemaRegistry
+from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
 
 
 def default_partitioner(key, num_partitions):
@@ -33,7 +33,7 @@ class AvroMessageLoader:
         self.num_partitions = loader_config['num_partitions']
 
         schema_registry_url = loader_config['consumer']['schema.registry.url']
-        schema_registry = SchemaRegistry(schema_registry_url)
+        schema_registry = AvroSchemaRegistry(schema_registry_url)
 
         self.key_serializer = partial(
             schema_registry.key_serializer,

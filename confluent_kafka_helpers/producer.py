@@ -1,11 +1,10 @@
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 
 from confluent_kafka_helpers import logger
-from confluent_kafka_helpers.schema_registry import SchemaRegistry
+from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
 
 
-# TODO: subclass AvroProducer?
-class AvroProducer:
+class AvroProducer(ConfluentAvroProducer):
 
     def __init__(self, producer_config):
         schema_registry_url = producer_config['schema.registry.url']
@@ -15,15 +14,12 @@ class AvroProducer:
         self.default_topic = producer_config.pop('default_topic')
 
         # fetch latest schemas from schema registry
-        schema_registry = SchemaRegistry(schema_registry_url)
+        schema_registry = AvroSchemaRegistry(schema_registry_url)
         key_schema = schema_registry.get_latest_schema(key_subject_name)
         value_schema = schema_registry.get_latest_schema(value_subject_name)
 
-        self.producer = ConfluentAvroProducer(
-            producer_config,
-            default_key_schema=key_schema,
-            default_value_schema=value_schema
-        )
+        super().__init__(producer_config, default_key_schema=key_schema,
+                         default_value_schema=value_schema)
 
     def produce(self, key, value, **kwargs):
         topic = kwargs.get('topic', None)
@@ -35,5 +31,5 @@ class AvroProducer:
 
         logger.info("Producing message", topic=topic, key=key,
                     value=value)
-        self.producer.produce(topic=topic, key=key, value=value)
-        self.producer.flush()
+        super().produce(topic=topic, key=key, value=value)
+        super().flush()
