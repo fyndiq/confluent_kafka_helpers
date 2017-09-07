@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
 setup(name="confluent_kafka_helpers",
       version="0.1",
@@ -7,7 +7,7 @@ setup(name="confluent_kafka_helpers",
       author="Fyndiq AB",
       author_email="support@fyndiq.com",
       license="MIT",
-      packages=["confluent_kafka_helpers"],
+      packages=find_packages(),
       install_requires=[
           'confluent-kafka[avro]==0.11.0',
           'structlog==17.2.0',
