@@ -27,12 +27,12 @@ def default_key_filter(key, message_key):
 
 class AvroMessageLoader:
 
-    def __init__(self, loader_config):
-        self.topic = loader_config['topic']
-        self.key_subject_name = loader_config['key_subject_name']
-        self.num_partitions = loader_config['num_partitions']
+    def __init__(self, config):
+        self.topic = config['topic']
+        self.key_subject_name = config['key_subject_name']
+        self.num_partitions = config['num_partitions']
 
-        schema_registry_url = loader_config['consumer']['schema.registry.url']
+        schema_registry_url = config['consumer']['schema.registry.url']
         schema_registry = AvroSchemaRegistry(schema_registry_url)
 
         self.key_serializer = partial(
@@ -40,7 +40,10 @@ class AvroMessageLoader:
             self.key_subject_name,
             self.topic
         )
-        self.consumer = AvroConsumer(loader_config['consumer'])
+
+        consumer_config = config['consumer']
+        consumer_config['default.topic.config']['auto.offset.reset'] = 'earliest'
+        self.consumer = AvroConsumer(consumer_config)
 
     def load(self, key, key_filter=default_key_filter,
              partitioner=default_partitioner):
