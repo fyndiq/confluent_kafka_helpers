@@ -1,0 +1,4 @@
+ipdb
+structlog
+pytest
+git+https://github.com/confluentinc/confluent-kafka-python#egg=confluent-kafka[avro]
