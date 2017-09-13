@@ -25,3 +25,10 @@ class AvroSchemaRegistry:
         )
         return key
 
+    def register_schema(self, subject, avro_schema):
+        logger.info("Registering schema", subject=subject,
+                    avro_schema=avro_schema)
+        avro_schema = avro.load(avro_schema)
+        schema_id = self.client.register(subject, avro_schema)
+        logger.info("Registered schema with id", schema_id=schema_id)
+        return schema_id
