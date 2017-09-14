@@ -1,6 +1,6 @@
 import pytest
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, call
 
 from confluent_kafka_helpers import producer
 from confluent_kafka_helpers.test import config
@@ -16,11 +16,14 @@ def avro_producer():
     return producer.AvroProducer(producer_config)
 
 
-
 def test_avro_producer_init(avro_producer):
+    import ipdb; ipdb.set_trace()
+    producer_config = config.Config.KAFKA_REPOSITORY_PRODUCER_CONFIG
     assert avro_producer.default_topic == 'c'
     assert avro_producer.value_serializer == config.to_message_from_dto
-    assert mock_avro_schema_registry.call_count == 1
+    mock_avro_schema_registry.assert_called_once_with(
+        'a'
+    )
     assert mock_confluent_avro_producer_init.call_count == 1
 
 
