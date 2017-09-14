@@ -1,41 +1,10 @@
 from unittest.mock import MagicMock, patch
 
-import pytest
-
-from confluent_kafka_helpers import consumer
 from confluent_kafka_helpers.test import config
+from confluent_kafka_helpers.test import conftest
 
 
-class PollReturnMock:
-    value = MagicMock()
-    value.return_value = b'foobar'
-    error = MagicMock()
-    error.return_value = None
-
-
-class ConfluentAvroConsumerMock:
-    def __init__(self, config):
-        pass
-
-    subscribe = MagicMock()
-    poll = MagicMock()
-    poll.return_value = PollReturnMock()
-    close = MagicMock()
-
-
-mock_confluent_avro_consumer = ConfluentAvroConsumerMock
-
-
-@pytest.fixture(scope='module')
-@patch(
-    'confluent_kafka_helpers.consumer.ConfluentAvroConsumer',
-    mock_confluent_avro_consumer
-)
-def avro_consumer():
-    consumer_config = config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
-    topic = 'a'
-    timeout = 1.0
-    return consumer.AvroConsumer(topic, consumer_config, timeout)
+mock_confluent_avro_consumer = conftest.mock_confluent_avro_consumer
 
 
 def test_avro_consumer_init(avro_consumer):
