@@ -27,7 +27,10 @@ mock_confluent_avro_consumer = ConfluentAvroConsumerMock
 
 
 @pytest.fixture(scope='module')
-@patch('confluent_kafka_helpers.consumer.ConfluentAvroConsumer', mock_confluent_avro_consumer)
+@patch(
+    'confluent_kafka_helpers.consumer.ConfluentAvroConsumer',
+    mock_confluent_avro_consumer
+)
 def avro_consumer():
     consumer_config = config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
     topic = 'a'
@@ -47,6 +50,7 @@ def test_avro_consumer_init(avro_consumer):
 def test_exit(avro_consumer):
     avro_consumer.__exit__(1, 1, 1)
     assert mock_confluent_avro_consumer.close.call_count == 1
+
 
 @patch('confluent_kafka.KafkaException', MagicMock())
 def test_avro_consumer(avro_consumer):

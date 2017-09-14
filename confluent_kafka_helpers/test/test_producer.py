@@ -1,36 +1,48 @@
-import pytest
+from unittest.mock import MagicMock, patch
 
-from unittest.mock import patch, MagicMock, call
+import pytest
 
 from confluent_kafka_helpers import producer
 from confluent_kafka_helpers.test import config
 
 mock_avro_schema_registry = MagicMock()
 mock_confluent_avro_producer_init = MagicMock()
+mock_avro_producer_produce = MagicMock()
+mock_avro_producer_flush = MagicMock()
+
 
 @pytest.fixture(scope='module')
-@patch('confluent_kafka_helpers.producer.AvroSchemaRegistry', mock_avro_schema_registry)
-@patch('confluent_kafka_helpers.producer.ConfluentAvroProducer.__init__', mock_confluent_avro_producer_init)
+@patch(
+    'confluent_kafka_helpers.producer.AvroSchemaRegistry',
+    mock_avro_schema_registry
+)
+@patch(
+    'confluent_kafka_helpers.producer.ConfluentAvroProducer.__init__',
+    mock_confluent_avro_producer_init
+)
 def avro_producer():
     producer_config = config.Config.KAFKA_REPOSITORY_PRODUCER_CONFIG
     return producer.AvroProducer(producer_config)
 
 
 def test_avro_producer_init(avro_producer):
-    import ipdb; ipdb.set_trace()
     producer_config = config.Config.KAFKA_REPOSITORY_PRODUCER_CONFIG
     assert avro_producer.default_topic == 'c'
     assert avro_producer.value_serializer == config.to_message_from_dto
     mock_avro_schema_registry.assert_called_once_with(
-        'a'
+        producer_config['schema.registry.url']
     )
     assert mock_confluent_avro_producer_init.call_count == 1
 
 
-mock_avro_producer_produce = MagicMock()
-mock_avro_producer_flush = MagicMock()
-@patch('confluent_kafka_helpers.producer.ConfluentAvroProducer.produce', mock_avro_producer_produce)
-@patch('confluent_kafka_helpers.producer.ConfluentAvroProducer.flush', mock_avro_producer_flush)
+@patch(
+    'confluent_kafka_helpers.producer.ConfluentAvroProducer.produce',
+    mock_avro_producer_produce
+)
+@patch(
+    'confluent_kafka_helpers.producer.ConfluentAvroProducer.flush',
+    mock_avro_producer_flush
+)
 def test_avro_producer_produce(avro_producer):
     key = 'a'
     value = '1'
@@ -41,4 +53,3 @@ def test_avro_producer_produce(avro_producer):
         value=avro_producer.value_serializer(value)
     )
     assert mock_avro_producer_flush.call_count == 1
-
