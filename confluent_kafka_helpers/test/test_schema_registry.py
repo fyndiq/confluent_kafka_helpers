@@ -1,6 +1,6 @@
-import pytest
+from unittest.mock import MagicMock, patch
 
-from unittest.mock import patch, MagicMock
+import pytest
 
 from confluent_kafka_helpers import schema_registry
 from confluent_kafka_helpers.test import config
@@ -43,4 +43,3 @@ def test_get_latest_schema(avro_schema_registry):
 def test_register_schema(avro_schema_registry):
     avro_schema_registry.register_schema('a', 'b')
     assert mock_cached_schema_registry_client.register.call_count == 1
-

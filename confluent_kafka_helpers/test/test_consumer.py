@@ -1,6 +1,6 @@
-import pytest
+from unittest.mock import MagicMock, patch
 
-from unittest.mock import patch, MagicMock
+import pytest
 
 from confluent_kafka_helpers import consumer
 from confluent_kafka_helpers.test import config
