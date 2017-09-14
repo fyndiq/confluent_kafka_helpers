@@ -4,18 +4,26 @@ import pytest
 
 from confluent_kafka_helpers import loader
 from confluent_kafka_helpers.test import config
+from confluent_kafka_helpers.test import conftest
 
-mock_avro_consumer = MagicMock()
+mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
+    name='ConfluentAvroConsumerMock'
+)
 mock_avro_schema_registry = MagicMock()
+mock_confluent_avro_consumer = conftest.mock_confluent_avro_consumer
+mock_topic_partition = MagicMock()
+mock_topic_partition.return_value = 1
+mock_partitioner = MagicMock()
+mock_partitioner.return_value = 1
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='function')
 @patch('confluent_kafka_helpers.loader.AvroConsumer', mock_avro_consumer)
 @patch(
     'confluent_kafka_helpers.loader.AvroSchemaRegistry',
     mock_avro_schema_registry()
 )
-def avro_message_loader():
+def avro_message_loader(avro_consumer):
     loader_config = config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
     return loader.AvroMessageLoader(loader_config)
 
@@ -35,3 +43,11 @@ def test_avro_message_loader_init(avro_message_loader):
 def test_default_partitioner(key, num_partitions, expected_response):
     response = loader.default_partitioner(key, num_partitions)
     assert expected_response == response
+
+
+@patch('confluent_kafka_helpers.loader.TopicPartition', mock_topic_partition)
+def test_avro_message_loader_load(avro_message_loader):
+    messages = avro_message_loader.load(key=1, partitioner=mock_partitioner)
+
+    assert len(messages) == 1
+    assert messages[0] == b'foobar'
