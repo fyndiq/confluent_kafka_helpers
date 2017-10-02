@@ -26,12 +26,20 @@ def default_key_filter(key, message_key):
 
 class AvroMessageLoader:
 
-    def __init__(self, config):
-        logger.debug("Using loader config", config=config)
+    DEFAULT_CONFIG = {
+        'default.topic.config': {
+            'auto.offset.reset': 'earliest'
+        }
+    }
 
+    def __init__(self, config):
         self.topic = config['topic']
-        self.key_subject_name = config['key_subject_name']
         self.num_partitions = config['num_partitions']
+
+        default_key_subject_name = f'{self.topic}-key'
+        self.key_subject_name = config.get(
+            'key_subject_name', default_key_subject_name
+        )
 
         schema_registry_url = config['consumer']['schema.registry.url']
         schema_registry = AvroSchemaRegistry(schema_registry_url)
@@ -41,12 +49,10 @@ class AvroMessageLoader:
         )
 
         consumer_config = config['consumer']
-        consumer_config['default.topic.config'][
-            'auto.offset.reset'] = 'earliest'
-
+        consumer_config.update(self.DEFAULT_CONFIG)
         self.consumer = AvroConsumer(consumer_config)
 
-    def load( self, key, key_filter=default_key_filter,
+    def load(self, key, key_filter=default_key_filter,
              partitioner=default_partitioner):
         """
         Load all stored messages for the given key.

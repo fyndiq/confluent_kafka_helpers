@@ -1,18 +1,23 @@
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
-from confluent_kafka.avro.serializer import SerializerError
-
-from confluent_kafka_helpers import logger
 
 
 class AvroConsumer:
+
+    # for available configuration options see:
+    # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+    DEFAULT_CONFIG = {
+        'session.timeout.ms': 6000,
+    }
 
     def __init__(self, topic, config, timeout=0.1):
         if not isinstance(topic, list):
             self.topic = [topic]
         else:
             self.topic = topic
+
         self.config = config
+        self.config.update(self.DEFAULT_CONFIG)
         self.timeout = timeout
 
         self.consumer = ConfluentAvroConsumer(self.config)
@@ -26,7 +31,7 @@ class AvroConsumer:
 
     def _message_generator(self):
         message = self.consumer.poll(timeout=self.timeout)
-        if not message:
+        if message is None:
             yield None
 
         if message.error():
@@ -39,10 +44,4 @@ class AvroConsumer:
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        if exc_type == SerializerError:
-            logger.error("Deserialization error", error=exc_value)
-
-        elif exc_type == KafkaException:
-            logger.error("Kafka exception", error=exc_value)
-
         self.consumer.close()
