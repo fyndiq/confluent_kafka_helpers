@@ -9,8 +9,13 @@ setup(name="confluent_kafka_helpers",
       license="MIT",
       packages=find_packages(),
       install_requires=[
-          'confluent-kafka[avro]==0.11.0',
-          'structlog==17.2.0',
-          'requests==2.18.3'
+          'structlog>=17.2.0',
+          'confluent-kafka-python>=0',
+          'requests>=2.18.3',
+          'fastavro>=0.14.10',
+          'avro-python3>=1.8.2'
+      ],
+      dependency_links=[
+          'https://github.com/confluentinc/confluent-kafka-python/zipball/master#egg=confluent-kafka-python-0'
       ],
       zip_safe=False)
