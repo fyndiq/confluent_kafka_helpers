@@ -4,7 +4,7 @@ import pytest
 
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from confluent_kafka_helpers import consumer
-from confluent_kafka_helpers.test import config
+from test import config
 
 number_of_messages = 1
 

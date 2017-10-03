@@ -1,4 +1,5 @@
 ipdb
 structlog
 pytest
+pytest-coverage
 git+https://github.com/confluentinc/confluent-kafka-python#egg=confluent-kafka[avro]

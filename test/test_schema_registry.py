@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from confluent_kafka_helpers import schema_registry
-from confluent_kafka_helpers.test import config
+from test import config
 
 
 class CachedSchemaRegistryClientMock(MagicMock):

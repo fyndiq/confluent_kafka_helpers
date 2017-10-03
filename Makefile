@@ -1,2 +1,2 @@
-test:
-	py.test -s -v
+unit-test:
+	./scripts/unit-test.sh
