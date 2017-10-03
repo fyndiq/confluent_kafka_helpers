@@ -12,7 +12,8 @@ setup(name="confluent_kafka_helpers",
           'structlog>=17.2.0',
           'confluent-kafka-python>=0',
           'requests>=2.18.3',
-          'fastavro>=0.14.10'
+          'fastavro>=0.14.10',
+          'avro-python3>=1.8.2'
       ],
       dependency_links=[
           'https://github.com/confluentinc/confluent-kafka-python/zipball/master#egg=confluent-kafka-python-0'
