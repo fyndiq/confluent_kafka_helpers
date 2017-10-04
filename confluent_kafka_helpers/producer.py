@@ -29,7 +29,7 @@ class AvroProducer(ConfluentAvroProducer):
         super().__init__(producer_config, default_key_schema=key_schema,
                          default_value_schema=value_schema)
 
-    def produce(self, key, value, topic=None):
+    def produce(self, key, value, topic=None, **kwargs):
         # TODO: fetch new schemas for topic (only once)
         topic = topic if topic else self.default_topic
 
@@ -38,4 +38,4 @@ class AvroProducer(ConfluentAvroProducer):
 
         logger.info("Producing message", topic=topic, key=key,
                     value=value)
-        super().produce(topic=topic, key=key, value=value)
+        super().produce(topic=topic, key=key, value=value, **kwargs)
