@@ -27,5 +27,5 @@ class Config:
             'key_subject_name': 'a',
             'value_subject_name': 'b',
             'default_topic': 'c',
-            'message_value_serializer': to_message_from_dto
+            'value_serializer': to_message_from_dto
     }

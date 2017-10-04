@@ -2,3 +2,5 @@
 __pycache__
 .venv/*
 confluent_kafka_helpers.egg-info/*
+.coverage
+coverage.xml

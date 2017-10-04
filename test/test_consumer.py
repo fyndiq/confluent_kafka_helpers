@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
-from confluent_kafka_helpers.test import config
-from confluent_kafka_helpers.test import conftest
+from test import config
+from test import conftest
 
 
 mock_confluent_avro_consumer = conftest.mock_confluent_avro_consumer

@@ -3,8 +3,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from confluent_kafka_helpers import loader
-from confluent_kafka_helpers.test import config
-from confluent_kafka_helpers.test import conftest
+from test import config
+from test import conftest
 
 mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
     name='ConfluentAvroConsumerMock'
@@ -29,6 +29,13 @@ def avro_message_loader(avro_consumer):
 
 
 def test_avro_message_loader_init(avro_message_loader):
+    """
+    Tests AvroMessageLoader.init function
+
+    Args:
+        avro_message_loader: A test fixture which is a AvroMessageLoader
+            with dependencies mocked away
+    """
     assert avro_message_loader.topic == 'a'
     assert avro_message_loader.key_subject_name == 'b'
     assert avro_message_loader.num_partitions == 10
@@ -41,6 +48,9 @@ def test_avro_message_loader_init(avro_message_loader):
     (b'15', 10, 8)
 ])
 def test_default_partitioner(key, num_partitions, expected_response):
+    """
+    Test the default partitioner with different parameters
+    """
     response = loader.default_partitioner(key, num_partitions)
     assert expected_response == response
 

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from confluent_kafka_helpers import producer
-from confluent_kafka_helpers.test import config
+from test import config
 
 mock_avro_schema_registry = MagicMock()
 mock_confluent_avro_producer_init = MagicMock()
