@@ -16,6 +16,6 @@ setup(name="confluent_kafka_helpers",
           'avro-python3>=1.8.2'
       ],
       dependency_links=[
-          'https://github.com/confluentinc/confluent-kafka-python/zipball/master#egg=confluent-kafka-python-0'
+          'https://github.com/confluentinc/confluent-kafka-python/zipball/master#egg=confluent-kafka-python-1'
       ],
       zip_safe=False)
