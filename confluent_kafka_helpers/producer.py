@@ -39,4 +39,3 @@ class AvroProducer(ConfluentAvroProducer):
         logger.info("Producing message", topic=topic, key=key,
                     value=value)
         super().produce(topic=topic, key=key, value=value)
-        super().flush()
