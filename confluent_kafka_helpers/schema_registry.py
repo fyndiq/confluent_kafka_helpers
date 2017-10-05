@@ -7,6 +7,10 @@ from confluent_kafka.avro.serializer.message_serializer import (
     MessageSerializer)
 
 
+class SchemaNotFound(Exception):
+    pass
+
+
 class AvroSchemaRegistry:
 
     def __init__(self, schema_registry_url):
@@ -16,6 +20,8 @@ class AvroSchemaRegistry:
 
     def get_latest_schema(self, subject):
         schema_id, schema, version = self.client.get_latest_schema(subject)
+        if not schema:
+            raise SchemaNotFound(f"Schema for subject {subject} not found")
         return schema
 
     def key_serializer(self, subject, topic, key):
