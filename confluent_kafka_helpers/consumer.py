@@ -8,6 +8,7 @@ class AvroConsumer:
     # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
     DEFAULT_CONFIG = {
         'session.timeout.ms': 6000,
+        'log.connection.close': False
     }
 
     def __init__(self, topic, config, timeout=0.1):
@@ -16,11 +17,10 @@ class AvroConsumer:
         else:
             self.topic = topic
 
-        self.config = config
-        self.config.update(self.DEFAULT_CONFIG)
+        config.update(self.DEFAULT_CONFIG)
         self.timeout = timeout
 
-        self.consumer = ConfluentAvroConsumer(self.config)
+        self.consumer = ConfluentAvroConsumer(config)
         self.consumer.subscribe(self.topic)
 
     def __iter__(self):

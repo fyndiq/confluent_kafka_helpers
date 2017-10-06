@@ -6,19 +6,24 @@ from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
 
 class AvroProducer(ConfluentAvroProducer):
 
-    def __init__(self, producer_config, value_serializer=None):
-        schema_registry_url = producer_config['schema.registry.url']
+    DEFAULT_CONFIG = {
+        'log.connection.close': False
+    }
 
-        self.default_topic = producer_config.pop('default_topic')
+    def __init__(self, config, value_serializer=None):
+        config.update(self.DEFAULT_CONFIG)
+        schema_registry_url = config['schema.registry.url']
+
+        self.default_topic = config.pop('default_topic')
         default_key_subject_name = f'{self.default_topic}-key'
-        key_subject_name = producer_config.pop(
+        key_subject_name = config.pop(
             'key_subject_name', default_key_subject_name
         )
         default_value_subject_name = f'{self.default_topic}-value'
-        value_subject_name = producer_config.pop(
+        value_subject_name = config.pop(
             'value_subject_name', default_value_subject_name
         )
-        self.value_serializer = producer_config.pop(
+        self.value_serializer = config.pop(
             'value_serializer', value_serializer
         )
         # fetch latest schemas from schema registry
@@ -26,7 +31,7 @@ class AvroProducer(ConfluentAvroProducer):
         key_schema = schema_registry.get_latest_schema(key_subject_name)
         value_schema = schema_registry.get_latest_schema(value_subject_name)
 
-        super().__init__(producer_config, default_key_schema=key_schema,
+        super().__init__(config, default_key_schema=key_schema,
                          default_value_schema=value_schema)
 
     def produce(self, key, value, topic=None, **kwargs):
