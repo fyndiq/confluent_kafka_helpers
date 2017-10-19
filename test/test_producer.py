@@ -79,3 +79,36 @@ def test_get_default_subject_names(avro_producer):
     assert key_subject_name == (topic_name + '-key')
     assert value_subject_name == (topic_name + '-value')
 
+
+def test_add_topic_data(avro_producer):
+    topic = 'a'
+    key_subject_name = 'b'
+    value_subject_name = 'c'
+
+    avro_producer.supported_topics = []
+    avro_producer._add_topic_data(topic, key_subject_name, value_subject_name, MagicMock())
+    assert len(avro_producer.supported_topics) == 1
+    assert avro_producer.supported_topics[0]['topic'] == 'a'
+
+
+def test_setup_extra_topics(avro_producer):
+    topic_list = ['a', 'b']
+    avro_producer.supported_topics = []
+    avro_producer._setup_extra_topics(topic_list, MagicMock())
+
+    assert len(avro_producer.supported_topics) == 2
+    assert avro_producer.supported_topics[0]['topic'] == topic_list[0]
+    assert avro_producer.supported_topics[1]['topic'] == topic_list[1]
+
+
+def test_get_schemas(avro_producer):
+    topic_list = ['a', 'b', 'c', 'd']
+    topic_index = 0
+    avro_producer.supported_topics = []
+
+    avro_producer.supported_topics = []
+    avro_producer._setup_extra_topics(topic_list, MagicMock())
+    key_schema, value_schema = avro_producer._get_schemas(topic_list[topic_index])
+
+    assert key_schema == avro_producer.supported_topics[topic_index]['key_schema']
+    assert value_schema == avro_producer.supported_topics[topic_index]['value_schema']
