@@ -8,6 +8,7 @@ mock_confluent_avro_consumer = conftest.mock_confluent_avro_consumer
 
 
 def test_avro_consumer_init(avro_consumer):
+    import ipdb
     assert avro_consumer.topic == ['a']
     assert avro_consumer.config == config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
     assert avro_consumer.timeout == 1.0

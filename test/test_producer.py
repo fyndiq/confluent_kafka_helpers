@@ -8,7 +8,6 @@ from test import config
 mock_avro_schema_registry = MagicMock()
 mock_confluent_avro_producer_init = MagicMock()
 mock_avro_producer_produce = MagicMock()
-mock_avro_producer_flush = MagicMock()
 
 
 @pytest.fixture(scope='module')
@@ -39,11 +38,7 @@ def test_avro_producer_init(avro_producer):
     'confluent_kafka_helpers.producer.ConfluentAvroProducer.produce',
     mock_avro_producer_produce
 )
-@patch(
-    'confluent_kafka_helpers.producer.ConfluentAvroProducer.flush',
-    mock_avro_producer_flush
-)
-def test_avro_producer_produce(avro_producer):
+def test_avro_producer_produce_default_topic(avro_producer):
     key = 'a'
     value = '1'
     avro_producer.produce(key, value)
@@ -52,4 +47,31 @@ def test_avro_producer_produce(avro_producer):
         key=key,
         value=avro_producer.value_serializer(value)
     )
-    assert mock_avro_producer_flush.call_count == 1
+
+
+@patch(
+    'confluent_kafka_helpers.producer.ConfluentAvroProducer.produce',
+    mock_avro_producer_produce
+)
+def test_avro_producer_produce_specific_topic(avro_producer):
+    key = 'a'
+    value = '1'
+    topic = 't1'
+    import ipdb; ipdb.set_trace()
+    avro_producer.produce(key, value, topic=topic)
+    mock_avro_producer_produce.assert_called_once_with(
+        topic=topic,
+        key=key,
+        value=avro_producer.value_serializer(value)
+    )
+
+
+def test_get_default_subject_names(avro_producer):
+    topic_name = 'test_topic'
+    import ipdb; ipdb.set_trace()
+    key_subject_name, value_subject_name = (
+        avro_producer._get_default_subject_names(topic_name)
+    )
+    assert key_subject_name == (topic_name + '-key')
+    assert value_subject_name == (topic_name + '-value')
+

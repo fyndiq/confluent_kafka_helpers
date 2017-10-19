@@ -7,10 +7,6 @@ class Config:
     KAFKA_CONSUMER_CONFIG = {
         'bootstrap.servers': 'localhost:9092',
         'group.id': 1,
-        'default.topic.config': {
-            'auto.offset.reset': 'latest'
-        },
-        'session.timeout.ms': 1,
         'schema.registry.url': '1.1.1.1'
     }
 
@@ -27,5 +23,6 @@ class Config:
             'key_subject_name': 'a',
             'value_subject_name': 'b',
             'default_topic': 'c',
-            'value_serializer': to_message_from_dto
+            'value_serializer': to_message_from_dto,
+            'extra_topics': ['t1', 't2']
     }
