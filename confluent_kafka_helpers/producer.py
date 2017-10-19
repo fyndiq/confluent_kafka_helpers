@@ -47,8 +47,9 @@ class AvroProducer(ConfluentAvroProducer):
                 )
 
     def _get_schemas(self, topic):
-        topic_data = (item for item in self.supported_topics if item['topic'] == topic)
-        return topic_data['key_schema'], topic_data['value_schema']
+        for topic_data in self.supported_topics:
+            if topic_data['topic'] == topic:
+                return topic_data['key_schema'], topic_data['value_schema']
 
     def __init__(self, config, value_serializer=None):
         config.update(self.DEFAULT_CONFIG)

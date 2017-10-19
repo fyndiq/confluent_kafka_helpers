@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, ANY
 
 import pytest
 
@@ -39,6 +39,7 @@ def test_avro_producer_init(avro_producer):
     mock_avro_producer_produce
 )
 def test_avro_producer_produce_default_topic(avro_producer):
+    mock_avro_producer_produce.reset_mock()
     key = 'a'
     value = '1'
     avro_producer.produce(key, value)
@@ -54,21 +55,24 @@ def test_avro_producer_produce_default_topic(avro_producer):
     mock_avro_producer_produce
 )
 def test_avro_producer_produce_specific_topic(avro_producer):
+    mock_avro_producer_produce.reset_mock()
     key = 'a'
     value = '1'
     topic = 't1'
-    import ipdb; ipdb.set_trace()
     avro_producer.produce(key, value, topic=topic)
+
     mock_avro_producer_produce.assert_called_once_with(
         topic=topic,
         key=key,
-        value=avro_producer.value_serializer(value)
+        value=avro_producer.value_serializer(value),
+        # TODO: Verify with the actual mocked schemas
+        key_schema=ANY,
+        value_schema=ANY,
     )
 
 
 def test_get_default_subject_names(avro_producer):
     topic_name = 'test_topic'
-    import ipdb; ipdb.set_trace()
     key_subject_name, value_subject_name = (
         avro_producer._get_default_subject_names(topic_name)
     )
