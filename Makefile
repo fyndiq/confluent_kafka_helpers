@@ -6,6 +6,3 @@ setup:
 
 test-ci:
 	./scripts/test.sh ci
-
-unit-test:
-	./scripts/unit-test.sh
