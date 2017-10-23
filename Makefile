@@ -6,3 +6,5 @@ setup:
 
 test-ci:
 	./scripts/test.sh ci
+
+.PHONY: test
