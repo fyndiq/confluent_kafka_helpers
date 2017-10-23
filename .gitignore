@@ -4,3 +4,4 @@ __pycache__
 confluent_kafka_helpers.egg-info/*
 .coverage
 coverage.xml
+.cache/*
