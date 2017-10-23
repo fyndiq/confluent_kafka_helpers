@@ -13,7 +13,11 @@ def test_avro_consumer_init(avro_consumer):
     mock_confluent_avro_consumer.subscribe.assert_called_once_with(
         ['a']
     )
-    mock_confluent_avro_consumer.assert_called_once_with(config.Config.KAFKA_REPOSITORY_LOADER_CONFIG)
+    mock_confluent_avro_consumer.assert_called_once()
+    call_args = mock_confluent_avro_consumer.call_args
+    args, kwargs = call_args
+    loader_config = config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
+    assert loader_config.items() <= args[0].items()
 
 
 def test_exit(avro_consumer):

@@ -3,22 +3,18 @@ from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
 
 class AvroConsumer:
-
     # for available configuration options see:
     # https://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
-    DEFAULT_CONFIG = {
-        'session.timeout.ms': 6000,
-        'log.connection.close': False
-    }
+    DEFAULT_CONFIG = {'session.timeout.ms': 6000, 'log.connection.close': False}
 
     def __init__(self, topic, config, timeout=0.1):
+        config = {**self.DEFAULT_CONFIG, **config}
+        self.timeout = timeout
+
         if not isinstance(topic, list):
             self.topic = [topic]
         else:
             self.topic = topic
-
-        config.update(self.DEFAULT_CONFIG)
-        self.timeout = timeout
 
         self.consumer = ConfluentAvroConsumer(config)
         self.consumer.subscribe(self.topic)
