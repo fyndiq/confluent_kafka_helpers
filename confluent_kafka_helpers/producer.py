@@ -1,7 +1,8 @@
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 
 from confluent_kafka_helpers import logger
-from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
+from confluent_kafka_helpers.schema_registry import (
+    AvroSchemaRegistry, SchemaNotFound)
 
 
 class TopicNotRegistered(Exception):
@@ -48,7 +49,14 @@ class AvroProducer(ConfluentAvroProducer):
         topic_schemas = {}
         for topic in topics:
             key_name, value_name = self._get_subject_names(topic)
-            key_schema = self.schema_registry.get_latest_schema(key_name)
+            try:
+                key_schema = self.schema_registry.get_latest_schema(key_name)
+            except SchemaNotFound:
+                # topics that are used for only pub/sub will probably not
+                # have a key set on the messages.
+                #
+                # on these topics we should not require a key schema.
+                key_schema = None
             value_schema = self.schema_registry.get_latest_schema(value_name)
             topic_schemas[topic] = (topic, key_schema, value_schema)
 
