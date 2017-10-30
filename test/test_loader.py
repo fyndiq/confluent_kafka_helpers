@@ -37,7 +37,6 @@ def test_avro_message_loader_init(avro_message_loader):
             with dependencies mocked away
     """
     assert avro_message_loader.topic == 'a'
-    assert avro_message_loader.key_subject_name == 'b'
     assert avro_message_loader.num_partitions == 10
     assert mock_avro_consumer.call_count == 1
     assert mock_avro_schema_registry.call_count == 1

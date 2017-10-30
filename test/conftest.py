@@ -4,6 +4,7 @@ import pytest
 
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from confluent_kafka_helpers import consumer
+
 from test import config
 
 number_of_messages = 1
@@ -25,14 +26,12 @@ class ConfluentAvroConsumerMock(MagicMock):
     poll = MagicMock(name='poll', return_value=PollReturnMock())
     close = MagicMock()
     get_watermark_offsets = MagicMock(
-        name='watermark_test',
-        return_value=[1, number_of_messages]
+        name='watermark_test', return_value=[1, number_of_messages]
     )
 
 
 mock_confluent_avro_consumer = ConfluentAvroConsumerMock(
-    spec=ConfluentAvroConsumer,
-    name='ConfluentAvroConsumerMock'
+    spec=ConfluentAvroConsumer, name='ConfluentAvroConsumerMock'
 )
 
 
@@ -42,7 +41,5 @@ mock_confluent_avro_consumer = ConfluentAvroConsumerMock(
     mock_confluent_avro_consumer
 )
 def avro_consumer():
-    consumer_config = config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
-    topic = 'a'
-    timeout = 1.0
-    return consumer.AvroConsumer(topic, consumer_config, timeout)
+    consumer_config = config.Config.KAFKA_CONSUMER_CONFIG
+    return consumer.AvroConsumer(consumer_config)
