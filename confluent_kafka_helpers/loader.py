@@ -26,7 +26,7 @@ def default_key_filter(key, message_key):
 
 class AvroMessageLoader:
 
-    DEFAULT_CONFIG = {
+    DEFAULT_CONSUMER_CONFIG = {
         'default.topic.config': {
             'auto.offset.reset': 'earliest'
         }
@@ -47,9 +47,7 @@ class AvroMessageLoader:
         self.key_serializer = partial(
             schema_registry.key_serializer, self.key_subject_name, self.topic
         )
-
-        consumer_config = config['consumer']
-        consumer_config.update(self.DEFAULT_CONFIG)
+        consumer_config = {**self.DEFAULT_CONSUMER_CONFIG, **config['consumer']}
         self.consumer = AvroConsumer(consumer_config)
 
     def load(self, key, key_filter=default_key_filter,

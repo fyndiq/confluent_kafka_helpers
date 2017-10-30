@@ -9,17 +9,13 @@ class AvroConsumer:
         'enable.auto.commit': False
     }
 
-    def __init__(self, topic, config, timeout=0.1):
+    def __init__(self, config):
         self.config = {**self.DEFAULT_CONFIG, **config}
-        self.timeout = timeout
-
-        if not isinstance(topic, list):
-            self.topic = [topic]
-        else:
-            self.topic = topic
+        self.poll_timeout = config.pop('poll_timeout', 0.1)
+        self.topics = self._get_topics(self.config)
 
         self.consumer = ConfluentAvroConsumer(self.config)
-        self.consumer.subscribe(self.topic)
+        self.consumer.subscribe(self.topics)
 
     def __getattr__(self, name):
         return getattr(self.consumer, name)
@@ -41,7 +37,7 @@ class AvroConsumer:
         self.consumer.close()
 
     def _message_generator(self):
-        message = self.consumer.poll(timeout=self.timeout)
+        message = self.consumer.poll(timeout=self.poll_timeout)
         if message is None:
             yield None
 
@@ -50,6 +46,15 @@ class AvroConsumer:
                 raise KafkaException(message.error())
 
         yield message
+
+    def _get_topics(self, config):
+        topics = config.pop('topics', None)
+        assert topics is not None, "You must subscribe to at least one topic"
+
+        if not isinstance(topics, list):
+            topics = [topics]
+
+        return topics
 
     @property
     def is_auto_commit(self):
