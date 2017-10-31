@@ -6,7 +6,10 @@ class AvroConsumer:
 
     DEFAULT_CONFIG = {
         'log.connection.close': False,
-        'enable.auto.commit': False
+        'enable.auto.commit': False,
+        'default.topic.config': {
+            'auto.offset.reset': 'earliest'
+        }
     }
 
     def __init__(self, config):
