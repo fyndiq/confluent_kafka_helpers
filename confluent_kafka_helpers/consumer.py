@@ -1,3 +1,5 @@
+import sys
+
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
@@ -38,6 +40,10 @@ class AvroConsumer:
         #  - commit offsets (only on auto commit)
         #  - leave consumer group
         self.consumer.close()
+
+        # the only reason a consumer exits is when an
+        # exception is raised.
+        sys.exit(1)
 
     def _message_generator(self):
         message = self.consumer.poll(timeout=self.poll_timeout)
