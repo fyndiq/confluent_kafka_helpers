@@ -12,34 +12,29 @@ class CachedSchemaRegistryClientMock(MagicMock):
     register = MagicMock()
 
 
-mock_cached_schema_registry_client = CachedSchemaRegistryClientMock()
+mock_client = CachedSchemaRegistryClientMock()
+mock_serializer = MagicMock()
 
 
 @pytest.fixture(scope='module')
-@patch(
-    'confluent_kafka_helpers.schema_registry.CachedSchemaRegistryClient',
-    mock_cached_schema_registry_client
-)
 def avro_schema_registry():
     url = config.Config.KAFKA_CONSUMER_CONFIG['schema.registry.url']
-    return schema_registry.AvroSchemaRegistry(url)
+    return schema_registry.AvroSchemaRegistry(url, mock_client, mock_serializer)
 
 
 def test_init(avro_schema_registry):
-    mock_cached_schema_registry_client.assert_called_once_with(
-       url=config.Config.KAFKA_CONSUMER_CONFIG['schema.registry.url']
+    mock_client.assert_called_once_with(
+        url=config.Config.KAFKA_CONSUMER_CONFIG['schema.registry.url']
     )
 
 
 def test_get_latest_schema(avro_schema_registry):
     subject = 'a'
     avro_schema_registry.get_latest_schema(subject)
-    mock_cached_schema_registry_client.get_latest_schema.assert_called_once_with(
-        subject
-    )
+    mock_client.get_latest_schema.assert_called_once_with(subject)
 
 
 @patch('confluent_kafka_helpers.schema_registry.avro.load', MagicMock())
 def test_register_schema(avro_schema_registry):
     avro_schema_registry.register_schema('a', 'b')
-    assert mock_cached_schema_registry_client.register.call_count == 1
+    assert mock_client.register.call_count == 1
