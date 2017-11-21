@@ -1,3 +1,4 @@
+import sys
 from test import conftest
 from unittest.mock import MagicMock, patch
 
@@ -15,7 +16,8 @@ def test_avro_consumer_init(avro_consumer):
 
 def test_exit(avro_consumer):
     with pytest.raises(SystemExit):
-        avro_consumer.__exit__(1, 1, 1)
+        traceback = sys.exc_info()[2]
+        avro_consumer.__exit__(Exception, None, traceback)
         assert mock_confluent_avro_consumer.close.call_count == 1
 
 
