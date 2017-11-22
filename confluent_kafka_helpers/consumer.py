@@ -1,5 +1,3 @@
-import sys
-import traceback
 
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
@@ -44,8 +42,6 @@ class AvroConsumer:
 
         # the only reason a consumer exits is when an
         # exception is raised.
-        traceback.print_exception(exc_type, exc_value, tb)
-        sys.exit(1)
 
     def _message_generator(self):
         message = self.consumer.poll(timeout=self.poll_timeout)
