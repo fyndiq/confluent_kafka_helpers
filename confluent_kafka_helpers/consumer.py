@@ -14,12 +14,13 @@ class AvroConsumer:
         }
     }
 
-    def __init__(self, config):
+    def __init__(self, config, consumer=ConfluentAvroConsumer):
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.poll_timeout = config.pop('poll_timeout', 0.1)
         self.topics = self._get_topics(self.config)
+        consumer = self.config.pop('class', consumer)
 
-        self.consumer = ConfluentAvroConsumer(self.config)
+        self.consumer = consumer(self.config)
         self.consumer.subscribe(self.topics)
 
     def __getattr__(self, name):
