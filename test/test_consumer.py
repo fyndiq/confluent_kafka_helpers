@@ -14,13 +14,6 @@ def test_avro_consumer_init(avro_consumer):
     mock_confluent_avro_consumer.assert_called_once()
 
 
-def test_exit(avro_consumer):
-    with pytest.raises(SystemExit):
-        traceback = sys.exc_info()[2]
-        avro_consumer.__exit__(Exception, None, traceback)
-        assert mock_confluent_avro_consumer.close.call_count == 1
-
-
 @patch('confluent_kafka.KafkaException', MagicMock())
 def test_avro_consumer(avro_consumer):
     for message in avro_consumer:
