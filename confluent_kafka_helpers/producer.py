@@ -15,7 +15,11 @@ class TopicNotRegistered(Exception):
 
 class AvroProducer(ConfluentAvroProducer):
 
-    DEFAULT_CONFIG = {'log.connection.close': False}
+    DEFAULT_CONFIG = {
+        'log.connection.close': False,
+        'queue.buffering.max.ms': 0,
+        'socket.blocking.max.ms': 1
+    }
 
     def __init__(self, config, value_serializer=None,
                  schema_registry=AvroSchemaRegistry):  # yapf: disable
