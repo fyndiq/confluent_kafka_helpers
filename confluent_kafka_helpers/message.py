@@ -8,7 +8,7 @@ import datetime
 
 class Message:
     __slots__ = [
-        "value", "error", "_raw", "_meta"
+        "value", "_raw", "_meta"
     ]
 
     def __init__(self, kafka_message):
