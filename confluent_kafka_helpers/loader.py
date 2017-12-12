@@ -29,7 +29,8 @@ class AvroMessageLoader:
     DEFAULT_CONSUMER_CONFIG = {
         'default.topic.config': {
             'auto.offset.reset': 'earliest'
-        }
+        },
+        'api.version.request': True
     }
 
     def __init__(self, config):

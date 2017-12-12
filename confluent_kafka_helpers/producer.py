@@ -15,7 +15,10 @@ class TopicNotRegistered(Exception):
 
 class AvroProducer(ConfluentAvroProducer):
 
-    DEFAULT_CONFIG = {'log.connection.close': False}
+    DEFAULT_CONFIG = {
+        'log.connection.close': False,
+        'api.version.request': True
+    }
 
     def __init__(self, config, value_serializer=None,
                  schema_registry=AvroSchemaRegistry):  # yapf: disable
