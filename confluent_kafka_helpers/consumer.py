@@ -54,7 +54,7 @@ class AvroConsumer:
             if message.error().code() != KafkaError._PARTITION_EOF:
                 raise KafkaException(message.error())
 
-        yield message
+        yield Message(message)
 
     def _get_topics(self, config):
         topics = config.pop('topics', None)

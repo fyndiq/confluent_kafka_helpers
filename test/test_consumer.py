@@ -17,5 +17,5 @@ def test_avro_consumer_init(avro_consumer):
 @patch('confluent_kafka.KafkaException', MagicMock())
 def test_avro_consumer(avro_consumer):
     for message in avro_consumer:
-        assert message.value() == b'foobar'
+        assert message.value == b'foobar'
         break
