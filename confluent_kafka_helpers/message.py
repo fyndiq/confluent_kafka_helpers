@@ -8,7 +8,7 @@ import datetime
 
 class Message:
     __slots__ = [
-        "value", "_raw", "_meta"
+        "value", "error", "_raw", "_meta"
     ]
 
     def __init__(self, kafka_message):
@@ -30,7 +30,7 @@ class MessageMetadata:
         self.topic = kafka_message.topic()
 
         timestamp_type, timestamp = kafka_message.timestamp()
-        if timestamp_type == 0 or timestamp == -1:
+        if timestamp_type == 0 or timestamp <= 0:
             timestamp = None
         self.timestamp = timestamp
 

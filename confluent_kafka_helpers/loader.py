@@ -5,6 +5,7 @@ from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
 from confluent_kafka_helpers import logger
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
+from confluent_kafka_helpers.message import Message
 
 
 def default_partitioner(key, num_partitions):
@@ -104,8 +105,10 @@ class AvroMessageLoader:
                     else:
                         raise KafkaException(message.error())
 
+                message = Message(message)
+
                 message_key, message_value, message_offset = (
-                    message.key(), message.value(), message.offset()
+                    message._meta.key, message.value, message._meta.offset
                 )
                 if key_filter(key, message_key):
                     logger.debug(
