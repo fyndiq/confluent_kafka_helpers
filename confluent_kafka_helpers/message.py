@@ -17,6 +17,19 @@ class Message:
         self._meta = MessageMetadata(kafka_message)
 
 
+def kafka_timestamp_to_datetime(timestamp):
+    return datetime.datetime.utcfromtimestamp(
+        timestamp / 1000.0
+    ) if timestamp is not None else None
+
+
+def extract_timestamp_from_message(kafka_message):
+        timestamp_type, timestamp = kafka_message.timestamp()
+        if timestamp_type == 0 or timestamp <= 0:
+            timestamp = None
+        return timestamp
+
+
 class MessageMetadata:
     __slots__ = [
         "key", "partition", "offset", "timestamp",
@@ -28,12 +41,5 @@ class MessageMetadata:
         self.partition = kafka_message.partition()
         self.offset = kafka_message.offset()
         self.topic = kafka_message.topic()
-
-        timestamp_type, timestamp = kafka_message.timestamp()
-        if timestamp_type == 0 or timestamp <= 0:
-            timestamp = None
-        self.timestamp = timestamp
-
-        self.datetime = datetime.datetime.utcfromtimestamp(
-            timestamp / 1000.0
-        ) if self.timestamp is not None else None
+        self.timestamp = extract_timestamp_from_message(kafka_message)
+        self.datetime = kafka_timestamp_to_datetime(self.timestamp)

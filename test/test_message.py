@@ -4,7 +4,9 @@ Test messages are properly turned into a Message object
 from unittest.mock import Mock
 import datetime
 
-from confluent_kafka_helpers.message import Message
+from confluent_kafka_helpers.message import (
+    Message, extract_timestamp_from_message, kafka_timestamp_to_datetime
+)
 
 
 mock_message = Mock()
@@ -13,6 +15,44 @@ mock_message.key = Mock(return_value="test")
 mock_message.partition = Mock(return_value=2)
 mock_message.offset = Mock(return_value=100)
 mock_message.topic = Mock(return_value="testing_topic")
+
+
+def test_timestamp_and_datetime_extraction():
+    """
+    tests that the function that extracts the timestamp
+    and datetime from a kafka message is working correctly
+    """
+    test_datetime = datetime.datetime(2017, 1, 15)
+    test_timestamp = (
+        test_datetime - datetime.datetime(1970, 1, 1)
+    ).total_seconds()*1000.0
+
+    # valid timestamp in the form kafka would send it if SET
+    mock_message.timestamp = Mock(
+        return_value=(1, test_timestamp)
+    )
+
+    timestamp = extract_timestamp_from_message(mock_message)
+    assert timestamp == test_timestamp
+    assert kafka_timestamp_to_datetime(timestamp) == test_datetime
+
+    # valid timestamp in the form kafka would send it if NOT SET
+    mock_message.timestamp = Mock(
+        return_value=(1, -1)
+    )
+
+    timestamp = extract_timestamp_from_message(mock_message)
+    assert timestamp is None
+    assert kafka_timestamp_to_datetime(timestamp) is None
+
+    # no timestamp in the form kafka would send it if NOT AVAILABLE
+    mock_message.timestamp = Mock(
+        return_value=(0, 0)
+    )
+
+    timestamp = extract_timestamp_from_message(mock_message)
+    assert timestamp is None
+    assert kafka_timestamp_to_datetime(timestamp) is None
 
 
 def test_message_object():
