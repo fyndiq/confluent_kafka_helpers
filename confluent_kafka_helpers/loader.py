@@ -27,9 +27,11 @@ def default_key_filter(key, message_key):
 class AvroMessageLoader:
 
     DEFAULT_CONSUMER_CONFIG = {
+        'log.connection.close': False,
         'default.topic.config': {
             'auto.offset.reset': 'earliest'
-        }
+        },
+        'fetch.wait.max.ms': 10
     }
 
     def __init__(self, config):
@@ -92,7 +94,7 @@ class AvroMessageLoader:
         messages = []
         try:
             while True and max_offset != 0:
-                message = self.consumer.poll(timeout=0.1)
+                message = self.consumer.poll(timeout=0)
                 if message is None:
                     continue
 
@@ -117,3 +119,6 @@ class AvroMessageLoader:
             print("Aborted")
 
         return messages
+
+    def __del__(self):
+        self.consumer.close()
