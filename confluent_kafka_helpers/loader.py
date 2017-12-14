@@ -11,7 +11,7 @@ def default_partitioner(key, num_partitions):
     """
     Algorithm used in Kafkas default 'consistent' partitioner
     """
-    return zlib.crc32(key) % int(num_partitions)
+    return zlib.crc32(key) % num_partitions
 
 
 def default_key_filter(key, message_key):
@@ -36,7 +36,7 @@ class AvroMessageLoader:
 
     def __init__(self, config):
         self.topic = config['topic']
-        self.num_partitions = config['num_partitions']
+        self.num_partitions = int(config['num_partitions'])
 
         default_key_subject_name = f'{self.topic}-key'
         self.key_subject_name = config.get(
