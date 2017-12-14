@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 from confluent_kafka import avro
 from confluent_kafka.avro.cached_schema_registry_client import (
     CachedSchemaRegistryClient)
@@ -23,8 +25,12 @@ class AvroSchemaRegistry:
             raise SchemaNotFound(f"Schema for subject {subject} not found")
         return schema
 
+    @lru_cache(maxsize=None)
+    def get_latest_cached_schema(self, subject):
+        return self.get_latest_schema(subject)
+
     def key_serializer(self, subject, topic, key):
-        schema = self.get_latest_schema(subject)
+        schema = self.get_latest_cached_schema(subject)
         key = self.serializer.encode_record_with_schema(
             topic, schema, key, is_key=True
         )

@@ -18,7 +18,8 @@ class AvroProducer(ConfluentAvroProducer):
     DEFAULT_CONFIG = {
         'log.connection.close': False,
         'queue.buffering.max.ms': 0,
-        'socket.blocking.max.ms': 1
+        'socket.blocking.max.ms': 1,
+        'acks': 'all'
     }
 
     def __init__(self, config, value_serializer=None,
