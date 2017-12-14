@@ -14,6 +14,7 @@ class AvroConsumer:
     }
 
     def __init__(self, config):
+        self.stop_on_eof = config.pop('stop_on_eof', False)
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.poll_timeout = config.pop('poll_timeout', 0.1)
         self.topics = self._get_topics(self.config)
@@ -34,14 +35,14 @@ class AvroConsumer:
         return self
 
     def __exit__(self, exc_type, exc_value, tb):
+        # the only reason a consumer exits is when an
+        # exception is raised.
+        #
         # close down the consumer cleanly accordingly:
         #  - stops consuming
         #  - commit offsets (only on auto commit)
         #  - leave consumer group
         self.consumer.close()
-
-        # the only reason a consumer exits is when an
-        # exception is raised.
 
     def _message_generator(self):
         message = self.consumer.poll(timeout=self.poll_timeout)
@@ -49,7 +50,10 @@ class AvroConsumer:
             yield None
 
         if message.error():
-            if message.error().code() != KafkaError._PARTITION_EOF:
+            error_code = message.error().code()
+            if self.stop_on_eof and error_code == KafkaError._PARTITION_EOF:
+                raise StopIteration
+            if error_code != KafkaError._PARTITION_EOF:
                 raise KafkaException(message.error())
 
         yield message
