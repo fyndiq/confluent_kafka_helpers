@@ -11,7 +11,7 @@ def default_partitioner(key, num_partitions):
     """
     Algorithm used in Kafkas default 'consistent' partitioner
     """
-    return zlib.crc32(key) % num_partitions
+    return zlib.crc32(key) % int(num_partitions)
 
 
 def default_key_filter(key, message_key):
