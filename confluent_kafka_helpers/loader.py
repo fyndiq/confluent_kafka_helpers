@@ -1,10 +1,13 @@
 import zlib
 from functools import partial
 
+import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
-from confluent_kafka_helpers import logger
+
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
+
+logger = structlog.get_logger(__name__)
 
 
 def default_partitioner(key, num_partitions):
@@ -28,10 +31,14 @@ class AvroMessageLoader:
 
     DEFAULT_CONSUMER_CONFIG = {
         'log.connection.close': False,
+        'log.thread.name': False,
         'default.topic.config': {
             'auto.offset.reset': 'earliest'
         },
-        'fetch.wait.max.ms': 10
+        'fetch.wait.max.ms': 10,
+        'offset.store.method': 'none',
+        'enable.auto.commit': False,
+        'fetch.error.backoff.ms': 0
     }
 
     def __init__(self, config):
@@ -51,6 +58,12 @@ class AvroMessageLoader:
         )
         consumer_config = {**self.DEFAULT_CONSUMER_CONFIG, **config['consumer']}
         self.consumer = AvroConsumer(consumer_config)
+
+    def __del__(self):
+        try:
+            self.consumer.close()
+        except AttributeError:
+            pass
 
     def load(self, key, key_filter=default_key_filter,
              partitioner=default_partitioner):
@@ -94,7 +107,7 @@ class AvroMessageLoader:
         messages = []
         try:
             while True and max_offset != 0:
-                message = self.consumer.poll(timeout=0)
+                message = self.consumer.poll(timeout=0.1)
                 if message is None:
                     continue
 
@@ -114,11 +127,7 @@ class AvroMessageLoader:
                         message=message_value, offset=message_offset
                     )
                     messages.append(message_value)
-
-        except KeyboardInterrupt:
-            print("Aborted")
+        finally:
+            self.consumer.unassign()
 
         return messages
-
-    def __del__(self):
-        self.consumer.close()

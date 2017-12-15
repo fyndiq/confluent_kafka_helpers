@@ -1,4 +1,3 @@
-
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
@@ -7,10 +6,13 @@ class AvroConsumer:
 
     DEFAULT_CONFIG = {
         'log.connection.close': False,
+        'log.thread.name': False,
         'enable.auto.commit': False,
         'default.topic.config': {
             'auto.offset.reset': 'earliest'
-        }
+        },
+        'fetch.wait.max.ms': 10,
+        'fetch.error.backoff.ms': 0
     }
 
     def __init__(self, config):
