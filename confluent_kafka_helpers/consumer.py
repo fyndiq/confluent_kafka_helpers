@@ -12,7 +12,8 @@ class AvroConsumer:
             'auto.offset.reset': 'earliest'
         },
         'fetch.wait.max.ms': 10,
-        'fetch.error.backoff.ms': 0
+        'fetch.error.backoff.ms': 0,
+        'session.timeout.ms': 6000
     }
 
     def __init__(self, config):
