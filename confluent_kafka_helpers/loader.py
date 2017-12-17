@@ -1,3 +1,4 @@
+import uuid
 import zlib
 from functools import partial
 
@@ -27,6 +28,41 @@ def default_key_filter(key, message_key):
     return key == message_key
 
 
+class MessageGenerator:
+    def __init__(self, consumer, key, key_filter):
+        self.consumer = consumer
+        self.key = key
+        self.key_filter = key_filter
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        return next(self._message_generator())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args, **kwargs):
+        self.consumer.unassign()
+
+    def _message_generator(self):
+        message = self.consumer.poll(timeout=0.1)
+        if message is None:
+            yield None
+
+        if message.error():
+            if message.error().code() == KafkaError._PARTITION_EOF:
+                logger.debug("Reached EOF")
+                raise StopIteration
+            else:
+                raise KafkaException(message.error())
+
+        message_key, message_value = (message.key(), message.value())
+        if self.key_filter(self.key, message_key):
+            yield message_value
+
+
 class AvroMessageLoader:
 
     DEFAULT_CONSUMER_CONFIG = {
@@ -38,7 +74,9 @@ class AvroMessageLoader:
         'fetch.wait.max.ms': 10,
         'offset.store.method': 'none',
         'enable.auto.commit': False,
-        'fetch.error.backoff.ms': 0
+        'fetch.error.backoff.ms': 0,
+        'session.timeout.ms': 6000,
+        'group.id': str(uuid.uuid4())
     }
 
     def __init__(self, config):
@@ -60,29 +98,30 @@ class AvroMessageLoader:
         self.consumer = AvroConsumer(consumer_config)
 
     def __del__(self):
+        # TODO: use atexit
         try:
             self.consumer.close()
         except AttributeError:
             pass
 
     def load(self, key, key_filter=default_key_filter,
-             partitioner=default_partitioner):
+             partitioner=default_partitioner):  # yapf: disable
         """
-        Load all stored messages for the given key.
+        Load all messages from a topic for the given key.
 
         Args:
-            key: Key used when the event was stored, probably the
+            key: Key used when the message was stored, probably the
                 ID of the message.
             key_filter: Callable used to filter the key. Usually we
-                are only interested in messages with the same keys.
+                are only interested in messages with the same key.
             partitioner: Callable used to calculate which partition
-                the message was stored in when produced.
+                the message was stored on when it was produced.
 
         Raises:
             KafkaException: On unexpected Kafka errors
 
         Returns:
-            list: A list with all messages for the given key.
+            MessageGenerator: A generator that yields messages.
         """
         # since all messages with the same key are guaranteed to be stored
         #    in the same topic partition (using default partitioner) we can
@@ -92,42 +131,12 @@ class AvroMessageLoader:
         #     deterministically calculate the partition number that was used.
         serialized_key = self.key_serializer(key)
         partition_num = partitioner(serialized_key, self.num_partitions)
+        # TODO: cache min offset for each key
         partition = TopicPartition(self.topic, partition_num, 0)
 
         self.consumer.assign([partition])
-        min_offset, max_offset = self.consumer.get_watermark_offsets(
-            partition, timeout=1.0, cached=False
-        )
         logger.info(
             "Loading messages from repository", topic=self.topic, key=key,
-            partition_num=partition_num, min_offset=min_offset,
-            max_offset=max_offset
+            partition_num=partition_num
         )
-
-        messages = []
-        try:
-            while True and max_offset != 0:
-                message = self.consumer.poll(timeout=0.1)
-                if message is None:
-                    continue
-
-                if message.error():
-                    if message.error().code() == KafkaError._PARTITION_EOF:
-                        logger.debug("Reached EOF")
-                        break
-                    else:
-                        raise KafkaException(message.error())
-
-                message_key, message_value, message_offset = (
-                    message.key(), message.value(), message.offset()
-                )
-                if key_filter(key, message_key):
-                    logger.debug(
-                        "Loading message", key=message_key,
-                        message=message_value, offset=message_offset
-                    )
-                    messages.append(message_value)
-        finally:
-            self.consumer.unassign()
-
-        return messages
+        return MessageGenerator(self.consumer, key, key_filter)
