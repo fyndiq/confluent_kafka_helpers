@@ -1,10 +1,8 @@
+from test import config, conftest
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from confluent_kafka_helpers import loader
-from test import config
-from test import conftest
 
 mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
     name='ConfluentAvroConsumerMock'

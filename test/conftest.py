@@ -1,11 +1,9 @@
+from test import config
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from confluent_kafka_helpers import consumer
-
-from test import config
 
 number_of_messages = 1
 
@@ -19,6 +17,12 @@ class PollReturnMock:
     key.return_value = 1
     offset = MagicMock()
     offset.side_effect = [i for i in range(0, number_of_messages)]
+    partition = MagicMock()
+    partition.return_value = 1
+    topic = MagicMock()
+    topic.return_value = "test"
+    timestamp = MagicMock()
+    timestamp.return_value = (1, -1)
 
 
 class ConfluentAvroConsumerMock(MagicMock):

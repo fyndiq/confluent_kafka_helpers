@@ -76,7 +76,8 @@ class AvroMessageLoader:
         'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
         'session.timeout.ms': 6000,
-        'group.id': str(uuid.uuid4())
+        'group.id': str(uuid.uuid4()),
+        'api.version.request': True
     }
 
     def __init__(self, config):
@@ -124,11 +125,11 @@ class AvroMessageLoader:
             MessageGenerator: A generator that yields messages.
         """
         # since all messages with the same key are guaranteed to be stored
-        #    in the same topic partition (using default partitioner) we can
-        #    optimize the loading by only reading from that specific partition.
+        # in the same topic partition (using default partitioner) we can
+        # optimize the loading by only reading from that specific partition.
         #
         # if we know the key and total number of partitions we can
-        #     deterministically calculate the partition number that was used.
+        # deterministically calculate the partition number that was used.
         serialized_key = self.key_serializer(key)
         partition_num = partitioner(serialized_key, self.num_partitions)
         # TODO: cache min offset for each key

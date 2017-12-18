@@ -1,6 +1,8 @@
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
+from confluent_kafka_helpers.message import Message
+
 
 class AvroConsumer:
 
@@ -13,7 +15,8 @@ class AvroConsumer:
         },
         'fetch.wait.max.ms': 10,
         'fetch.error.backoff.ms': 0,
-        'session.timeout.ms': 6000
+        'session.timeout.ms': 6000,
+        'api.version.request': True
     }
 
     def __init__(self, config):
@@ -59,7 +62,7 @@ class AvroConsumer:
             if error_code != KafkaError._PARTITION_EOF:
                 raise KafkaException(message.error())
 
-        yield message
+        yield Message(message)
 
     def _get_topics(self, config):
         topics = config.pop('topics', None)

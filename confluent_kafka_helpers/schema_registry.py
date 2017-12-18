@@ -3,7 +3,8 @@ from functools import lru_cache
 import structlog
 from confluent_kafka import avro
 from confluent_kafka.avro.cached_schema_registry_client import (
-    CachedSchemaRegistryClient)
+    CachedSchemaRegistryClient
+)
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 
 logger = structlog.get_logger(__name__)
