@@ -4,6 +4,7 @@ from functools import partial
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
 from confluent_kafka_helpers import logger
+from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
 
 
@@ -29,7 +30,8 @@ class AvroMessageLoader:
     DEFAULT_CONSUMER_CONFIG = {
         'default.topic.config': {
             'auto.offset.reset': 'earliest'
-        }
+        },
+        'api.version.request': True
     }
 
     def __init__(self, config):
@@ -103,8 +105,10 @@ class AvroMessageLoader:
                     else:
                         raise KafkaException(message.error())
 
+                message = Message(message)
+
                 message_key, message_value, message_offset = (
-                    message.key(), message.value(), message.offset()
+                    message._meta.key, message.value, message._meta.offset
                 )
                 if key_filter(key, message_key):
                     logger.debug(
