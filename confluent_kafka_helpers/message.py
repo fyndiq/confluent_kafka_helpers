@@ -44,3 +44,11 @@ class MessageMetadata:
         self.topic = kafka_message.topic()
         self.timestamp = extract_timestamp_from_message(kafka_message)
         self.datetime = kafka_timestamp_to_datetime(self.timestamp)
+
+    def __repr__(self):
+        msg = (
+            f"MessageMeta(key={self.key}, partition={self.partition}, "
+            f"offset={self.offset}, topic={self.topic}, "
+            f"timestamp={self.timestamp}, datetime={self.datetime})"
+        )
+        return msg
