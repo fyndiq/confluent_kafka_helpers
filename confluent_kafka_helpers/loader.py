@@ -1,3 +1,4 @@
+import atexit
 import uuid
 import zlib
 from functools import partial
@@ -48,24 +49,25 @@ class MessageGenerator:
         self.consumer.unassign()
 
     def _message_generator(self):
-        message = self.consumer.poll(timeout=0.1)
-        if message is None:
-            yield None
+        while True:
+            message = self.consumer.poll(timeout=0.1)
+            if message is None:
+                continue
 
-        if message.error():
-            if message.error().code() == KafkaError._PARTITION_EOF:
-                logger.debug("Reached EOF")
-                raise StopIteration
-            else:
-                raise KafkaException(message.error())
+            if message.error():
+                if message.error().code() == KafkaError._PARTITION_EOF:
+                    logger.debug("Reached EOF")
+                    raise StopIteration
+                else:
+                    raise KafkaException(message.error())
 
-        if self.key_filter(self.key, message.key()):
-            yield Message(message)
+            if self.key_filter(self.key, message.key()):
+                yield Message(message)
 
 
 class AvroMessageLoader:
 
-    DEFAULT_CONSUMER_CONFIG = {
+    DEFAULT_CONFIG = {
         'log.connection.close': False,
         'log.thread.name': False,
         'default.topic.config': {
@@ -91,19 +93,19 @@ class AvroMessageLoader:
 
         schema_registry_url = config['consumer']['schema.registry.url']
         schema_registry = AvroSchemaRegistry(schema_registry_url)
-
         self.key_serializer = partial(
             schema_registry.key_serializer, self.key_subject_name, self.topic
         )
-        consumer_config = {**self.DEFAULT_CONSUMER_CONFIG, **config['consumer']}
+
+        consumer_config = {**self.DEFAULT_CONFIG, **config['consumer']}
+        logger.debug("Initializing loader", config=consumer_config)
         self.consumer = AvroConsumer(consumer_config)
 
-    def __del__(self):
-        # TODO: use atexit
-        try:
-            self.consumer.close()
-        except AttributeError:
-            pass
+        atexit.register(self._close)
+
+    def _close(self):
+        logger.debug("Closing loader")
+        self.consumer.close()
 
     def load(self, key, key_filter=default_key_filter,
              partitioner=default_partitioner):  # yapf: disable
@@ -119,7 +121,7 @@ class AvroMessageLoader:
                 the message was stored on when it was produced.
 
         Raises:
-            KafkaException: On unexpected Kafka errors
+            KafkaException: Kafka errors.
 
         Returns:
             MessageGenerator: A generator that yields messages.
