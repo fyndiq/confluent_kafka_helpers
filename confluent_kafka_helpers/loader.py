@@ -6,6 +6,7 @@ import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
 
+from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
 
 logger = structlog.get_logger(__name__)
@@ -58,9 +59,8 @@ class MessageGenerator:
             else:
                 raise KafkaException(message.error())
 
-        message_key, message_value = (message.key(), message.value())
-        if self.key_filter(self.key, message_key):
-            yield message_value
+        if self.key_filter(self.key, message.key()):
+            yield Message(message)
 
 
 class AvroMessageLoader:
