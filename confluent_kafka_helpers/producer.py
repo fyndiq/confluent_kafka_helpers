@@ -2,8 +2,7 @@ import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 
 from confluent_kafka_helpers.schema_registry import (
-    AvroSchemaRegistry, SchemaNotFound
-)
+    AvroSchemaRegistry, SchemaNotFound)
 
 logger = structlog.get_logger(__name__)
 
@@ -41,10 +40,8 @@ class AvroProducer(ConfluentAvroProducer):
         default_topic_schema = next(iter(self.topic_schemas.values()))
         self.default_topic, *_ = default_topic_schema
 
+        logger.debug("Initializing producer", config=config)
         super().__init__(config)
-
-    def __del__(self):
-        super().flush()
 
     def _get_subject_names(self, topic):
         """
