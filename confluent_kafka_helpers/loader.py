@@ -105,17 +105,8 @@ class AvroMessageLoader:
                     else:
                         raise KafkaException(message.error())
 
-                message = Message(message)
-
-                message_key, message_value, message_offset = (
-                    message._meta.key, message.value, message._meta.offset
-                )
-                if key_filter(key, message_key):
-                    logger.debug(
-                        "Loading message", key=message_key,
-                        message=message_value, offset=message_offset
-                    )
-                    messages.append(message_value)
+                if key_filter(key, message.key()):
+                    messages.append(Message(message))
 
         except KeyboardInterrupt:
             print("Aborted")
