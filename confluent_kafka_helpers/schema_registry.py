@@ -1,8 +1,8 @@
 from confluent_kafka import avro
-from confluent_kafka.avro.cached_schema_registry_client import (
-    CachedSchemaRegistryClient)
-from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
-
+from confluent_kafka.avro.cached_schema_registry_client import \
+    CachedSchemaRegistryClient
+from confluent_kafka.avro.serializer.message_serializer import \
+    MessageSerializer
 from confluent_kafka_helpers import logger
 
 

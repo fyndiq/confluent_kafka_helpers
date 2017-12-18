@@ -1,13 +1,12 @@
 """
 Test messages are properly turned into a Message object
 """
-from unittest.mock import Mock
 import datetime
+from unittest.mock import Mock
 
-from confluent_kafka_helpers.message import (
-    Message, extract_timestamp_from_message, kafka_timestamp_to_datetime
-)
-
+from confluent_kafka_helpers.message import (Message,
+                                             extract_timestamp_from_message,
+                                             kafka_timestamp_to_datetime)
 
 mock_message = Mock()
 mock_message.value = Mock(return_value={"data": "test"})

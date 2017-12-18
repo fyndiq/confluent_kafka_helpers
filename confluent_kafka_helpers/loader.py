@@ -4,8 +4,8 @@ from functools import partial
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
 from confluent_kafka_helpers import logger
-from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
 from confluent_kafka_helpers.message import Message
+from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
 
 
 def default_partitioner(key, num_partitions):

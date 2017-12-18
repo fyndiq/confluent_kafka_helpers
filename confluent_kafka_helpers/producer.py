@@ -1,8 +1,7 @@
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
-
 from confluent_kafka_helpers import logger
-from confluent_kafka_helpers.schema_registry import (
-    AvroSchemaRegistry, SchemaNotFound)
+from confluent_kafka_helpers.schema_registry import (AvroSchemaRegistry,
+                                                     SchemaNotFound)
 
 
 class TopicNotRegistered(Exception):
