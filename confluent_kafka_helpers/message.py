@@ -7,14 +7,18 @@ import datetime
 
 
 class Message:
-    __slots__ = [
-        "value", "_raw", "_meta"
-    ]
+    __slots__ = ["value", "_raw", "_meta"]
 
     def __init__(self, kafka_message):
         self.value = kafka_message.value()
         self._raw = kafka_message
         self._meta = MessageMetadata(kafka_message)
+
+    def __repr__(self):
+        return f"Message(value={self.value})"
+
+    def __bool__(self):
+        return True if self.value else False
 
 
 def kafka_timestamp_to_datetime(timestamp):
@@ -31,10 +35,7 @@ def extract_timestamp_from_message(kafka_message):
 
 
 class MessageMetadata:
-    __slots__ = [
-        "key", "partition", "offset", "timestamp",
-        "datetime", "topic"
-    ]
+    __slots__ = ["key", "partition", "offset", "timestamp", "datetime", "topic"]
 
     def __init__(self, kafka_message):
         self.key = kafka_message.key()
@@ -43,3 +44,11 @@ class MessageMetadata:
         self.topic = kafka_message.topic()
         self.timestamp = extract_timestamp_from_message(kafka_message)
         self.datetime = kafka_timestamp_to_datetime(self.timestamp)
+
+    def __repr__(self):
+        msg = (
+            f"MessageMeta(key={self.key}, partition={self.partition}, "
+            f"offset={self.offset}, topic={self.topic}, "
+            f"timestamp={self.timestamp}, datetime={self.datetime})"
+        )
+        return msg
