@@ -24,10 +24,10 @@ def kafka_timestamp_to_datetime(timestamp):
 
 
 def extract_timestamp_from_message(kafka_message):
-        timestamp_type, timestamp = kafka_message.timestamp()
-        if timestamp_type == 0 or timestamp <= 0:
-            timestamp = None
-        return timestamp
+    timestamp_type, timestamp = kafka_message.timestamp()
+    if timestamp_type == 0 or timestamp <= 0:
+        timestamp = None
+    return timestamp
 
 
 class MessageMetadata:
