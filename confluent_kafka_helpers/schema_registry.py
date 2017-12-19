@@ -1,9 +1,13 @@
+from functools import lru_cache
+
+import structlog
 from confluent_kafka import avro
-from confluent_kafka.avro.cached_schema_registry_client import \
+from confluent_kafka.avro.cached_schema_registry_client import (
     CachedSchemaRegistryClient
-from confluent_kafka.avro.serializer.message_serializer import \
-    MessageSerializer
-from confluent_kafka_helpers import logger
+)
+from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
+
+logger = structlog.get_logger(__name__)
 
 
 class SchemaNotFound(Exception):
@@ -23,8 +27,12 @@ class AvroSchemaRegistry:
             raise SchemaNotFound(f"Schema for subject {subject} not found")
         return schema
 
+    @lru_cache(maxsize=None)
+    def get_latest_cached_schema(self, subject):
+        return self.get_latest_schema(subject)
+
     def key_serializer(self, subject, topic, key):
-        schema = self.get_latest_schema(subject)
+        schema = self.get_latest_cached_schema(subject)
         key = self.serializer.encode_record_with_schema(
             topic, schema, key, is_key=True
         )
