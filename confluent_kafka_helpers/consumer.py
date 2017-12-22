@@ -19,8 +19,7 @@ class AvroConsumer:
         'fetch.wait.max.ms': 10,
         'fetch.error.backoff.ms': 0,
         'session.timeout.ms': 6000,
-        'api.version.request': True,
-        'non_blocking': False
+        'api.version.request': True
     }
 
     def __init__(self, config):
