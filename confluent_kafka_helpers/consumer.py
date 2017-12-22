@@ -19,10 +19,12 @@ class AvroConsumer:
         'fetch.wait.max.ms': 10,
         'fetch.error.backoff.ms': 0,
         'session.timeout.ms': 6000,
-        'api.version.request': True
+        'api.version.request': True,
+        'non_blocking': False
     }
 
     def __init__(self, config):
+        self.non_blocking = config.pop('non_blocking', False)
         self.stop_on_eof = config.pop('stop_on_eof', False)
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.poll_timeout = config.pop('poll_timeout', 0.1)
@@ -59,6 +61,8 @@ class AvroConsumer:
         while True:
             message = self.consumer.poll(timeout=self.poll_timeout)
             if message is None:
+                if self.non_blocking:
+                    yield None
                 continue
 
             if message.error():
