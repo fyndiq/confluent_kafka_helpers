@@ -1,3 +1,5 @@
+import socket
+
 import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 
@@ -22,7 +24,8 @@ class AvroProducer(ConfluentAvroProducer):
         'api.version.request': True,
         'queue.buffering.max.ms': 0,
         'socket.blocking.max.ms': 1,
-        'acks': 'all'
+        'acks': 'all',
+        'client.id': socket.gethostname()
     }
 
     def __init__(self, config, value_serializer=None,

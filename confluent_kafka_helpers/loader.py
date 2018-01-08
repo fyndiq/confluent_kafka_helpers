@@ -1,4 +1,5 @@
 import atexit
+import socket
 import uuid
 import zlib
 from functools import partial
@@ -74,12 +75,14 @@ class AvroMessageLoader:
             'auto.offset.reset': 'earliest'
         },
         'fetch.wait.max.ms': 10,
+        'fetch.message.max.bytes': 10500,
         'offset.store.method': 'none',
         'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
         'session.timeout.ms': 6000,
         'group.id': str(uuid.uuid4()),
-        'api.version.request': True
+        'api.version.request': True,
+        'client.id': socket.gethostname()
     }
 
     def __init__(self, config):

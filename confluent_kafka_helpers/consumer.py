@@ -1,3 +1,5 @@
+import socket
+
 import structlog
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
@@ -14,12 +16,14 @@ class AvroConsumer:
         'log.thread.name': False,
         'enable.auto.commit': False,
         'default.topic.config': {
-            'auto.offset.reset': 'earliest'
+            'auto.offset.reset': 'latest'
         },
         'fetch.wait.max.ms': 10,
         'fetch.error.backoff.ms': 0,
+        'fetch.message.max.bytes': 10500,
         'session.timeout.ms': 6000,
-        'api.version.request': True
+        'api.version.request': True,
+        'client.id': socket.gethostname()
     }
 
     def __init__(self, config):
