@@ -50,7 +50,7 @@ class AvroProducer(ConfluentAvroProducer):
         super().__init__(config)
 
     def _close(self):
-        logger.debug("Flushing")
+        logger.debug("Flushing producer")
         super().flush()
 
     def _get_subject_names(self, topic):
