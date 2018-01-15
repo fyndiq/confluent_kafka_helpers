@@ -2,6 +2,7 @@ from test import config
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from confluent_kafka_helpers import producer
 
 mock_avro_schema_registry = MagicMock()
@@ -18,6 +19,7 @@ def teardown_function(function):
     'confluent_kafka_helpers.producer.ConfluentAvroProducer.__init__',
     mock_confluent_avro_producer_init
 )
+@patch('confluent_kafka_helpers.producer.AvroProducer._close', MagicMock())
 def avro_producer():
     producer_config = config.Config.KAFKA_REPOSITORY_PRODUCER_CONFIG
     return producer.AvroProducer(

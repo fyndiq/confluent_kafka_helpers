@@ -1,8 +1,5 @@
-import sys
 from test import conftest
 from unittest.mock import MagicMock, patch
-
-import pytest
 
 mock_confluent_avro_consumer = conftest.mock_confluent_avro_consumer
 
