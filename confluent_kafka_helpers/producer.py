@@ -1,3 +1,4 @@
+import atexit
 import socket
 
 import structlog
@@ -44,7 +45,13 @@ class AvroProducer(ConfluentAvroProducer):
         self.default_topic, *_ = default_topic_schema
 
         logger.debug("Initializing producer", config=config)
+        atexit.register(self._close)
+
         super().__init__(config)
+
+    def _close(self):
+        logger.debug("Flushing")
+        super().flush()
 
     def _get_subject_names(self, topic):
         """
