@@ -1,5 +1,4 @@
 from test import config, conftest
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest

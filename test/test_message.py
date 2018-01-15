@@ -4,9 +4,9 @@ Test messages are properly turned into a Message object
 import datetime
 from unittest.mock import Mock
 
-from confluent_kafka_helpers.message import (Message,
-                                             extract_timestamp_from_message,
-                                             kafka_timestamp_to_datetime)
+from confluent_kafka_helpers.message import (
+    Message, extract_timestamp_from_message, kafka_timestamp_to_datetime
+)
 
 mock_message = Mock()
 mock_message.value = Mock(return_value={"data": "test"})
@@ -22,32 +22,25 @@ def test_timestamp_and_datetime_extraction():
     and datetime from a kafka message is working correctly
     """
     test_datetime = datetime.datetime(2017, 1, 15)
-    test_timestamp = (
-        test_datetime - datetime.datetime(1970, 1, 1)
-    ).total_seconds()*1000.0
+    test_timestamp = (test_datetime - datetime.datetime(1970, 1, 1)
+                      ).total_seconds() * 1000.0
 
     # valid timestamp in the form kafka would send it if SET
-    mock_message.timestamp = Mock(
-        return_value=(1, test_timestamp)
-    )
+    mock_message.timestamp = Mock(return_value=(1, test_timestamp))
 
     timestamp = extract_timestamp_from_message(mock_message)
     assert timestamp == test_timestamp
     assert kafka_timestamp_to_datetime(timestamp) == test_datetime
 
     # valid timestamp in the form kafka would send it if NOT SET
-    mock_message.timestamp = Mock(
-        return_value=(1, -1)
-    )
+    mock_message.timestamp = Mock(return_value=(1, -1))
 
     timestamp = extract_timestamp_from_message(mock_message)
     assert timestamp is None
     assert kafka_timestamp_to_datetime(timestamp) is None
 
     # no timestamp in the form kafka would send it if NOT AVAILABLE
-    mock_message.timestamp = Mock(
-        return_value=(0, 0)
-    )
+    mock_message.timestamp = Mock(return_value=(0, 0))
 
     timestamp = extract_timestamp_from_message(mock_message)
     assert timestamp is None
@@ -64,7 +57,8 @@ def test_message_object():
     # valid timestamp
     mock_message.timestamp = Mock(
         return_value=(
-            1, (datetime.datetime(2017, 1, 15) - datetime.datetime(1970, 1, 1)).total_seconds()*1000.0
+            1, (datetime.datetime(2017, 1, 15) - datetime.datetime(1970, 1, 1)
+                ).total_seconds() * 1000.0
         )
     )
 
@@ -86,9 +80,7 @@ def test_timestamp_is_negative():
     If the timestamp is negative (not set by kafka),
     it should be reflected as None in the message metadata
     """
-    mock_message.timestamp = Mock(
-        return_value=(1, -1)
-    )
+    mock_message.timestamp = Mock(return_value=(1, -1))
     new_message = Message(mock_message)
 
     assert new_message.value == mock_message.value()
@@ -106,9 +98,7 @@ def test_timestamp_is_not_available():
     If the timestamp is 0 and not available,
     it should be reflected as None in the message metadata
     """
-    mock_message.timestamp = Mock(
-        return_value=(0, 0)
-    )
+    mock_message.timestamp = Mock(return_value=(0, 0))
     new_message = Message(mock_message)
 
     assert new_message.value == mock_message.value()
