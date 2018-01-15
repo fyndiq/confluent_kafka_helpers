@@ -1,4 +1,4 @@
-from test import conftest
+from tests import conftest
 from unittest.mock import MagicMock, patch
 
 mock_confluent_avro_consumer = conftest.mock_confluent_avro_consumer

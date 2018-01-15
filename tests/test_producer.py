@@ -1,4 +1,4 @@
-from test import config
+from tests import config
 from unittest.mock import MagicMock, patch
 
 import pytest

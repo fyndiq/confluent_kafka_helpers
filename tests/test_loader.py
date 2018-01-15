@@ -1,4 +1,4 @@
-from test import config, conftest
+from tests import config, conftest
 from unittest.mock import MagicMock, patch
 
 import pytest
