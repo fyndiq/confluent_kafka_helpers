@@ -57,7 +57,7 @@ class MessageGenerator:
 
             if message.error():
                 if message.error().code() == KafkaError._PARTITION_EOF:
-                    logger.debug("Reached EOF")
+                    logger.debug("Reached end of partition")
                     raise StopIteration
                 else:
                     raise KafkaException(message.error())
@@ -101,13 +101,13 @@ class AvroMessageLoader:
         )
 
         consumer_config = {**self.DEFAULT_CONFIG, **config['consumer']}
-        logger.debug("Initializing loader", config=consumer_config)
+        logger.info("Initializing loader", config=consumer_config)
         self.consumer = AvroConsumer(consumer_config)
 
         atexit.register(self._close)
 
     def _close(self):
-        logger.debug("Closing loader")
+        logger.info("Closing consumer (loader)")
         self.consumer.close()
 
     def load(self, key, key_filter=default_key_filter,

@@ -44,13 +44,13 @@ class AvroProducer(ConfluentAvroProducer):
         default_topic_schema = next(iter(self.topic_schemas.values()))
         self.default_topic, *_ = default_topic_schema
 
-        logger.debug("Initializing producer", config=config)
+        logger.info("Initializing producer", config=config)
         atexit.register(self._close)
 
         super().__init__(config)
 
     def _close(self):
-        logger.debug("Flushing producer")
+        logger.info("Flushing producer")
         super().flush()
 
     def _get_subject_names(self, topic):

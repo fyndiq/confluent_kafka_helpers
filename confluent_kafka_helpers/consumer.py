@@ -30,10 +30,10 @@ class AvroConsumer:
         self.non_blocking = config.pop('non_blocking', False)
         self.stop_on_eof = config.pop('stop_on_eof', False)
         self.config = {**self.DEFAULT_CONFIG, **config}
-        self.poll_timeout = config.pop('poll_timeout', 0.1)
+        self.poll_timeout = config.pop('poll.timeout', 0.1)
         self.topics = self._get_topics(self.config)
 
-        logger.debug("Initializing consumer", config=self.config)
+        logger.info("Initializing consumer", config=self.config)
         self.consumer = ConfluentAvroConsumer(self.config)
         self.consumer.subscribe(self.topics)
 
@@ -57,7 +57,7 @@ class AvroConsumer:
         #  - stops consuming
         #  - commit offsets (only on auto commit)
         #  - leave consumer group
-        logger.debug("Closing consumer")
+        logger.info("Closing consumer")
         self.consumer.close()
 
     def _message_generator(self):
