@@ -46,7 +46,8 @@ class MessageGenerator:
         return self
 
     def __exit__(self, *args, **kwargs):
-        self.consumer.unassign()
+        pass
+        # self.consumer.unassign()
 
     def _message_generator(self):
         while True:
