@@ -21,6 +21,11 @@ jobs:
       - run:
           name: Running tests
           command: make test-ci
+      - store_test_results:
+          path: /tmp/test-results
+      - run:
+          name: Running checks
+          command: make check
 
 workflows:
   version: 2

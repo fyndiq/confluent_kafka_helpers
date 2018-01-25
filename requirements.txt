@@ -1,8 +1,10 @@
+codecov
+confluent-kafka[avro]
+flake8
 ipdb
-structlog
+mypy
 pytest
 pytest-coverage
 pytest-mock
 pytest-sugar
-codecov
-confluent-kafka[avro]
+structlog
