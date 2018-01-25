@@ -8,6 +8,7 @@ from confluent_kafka import KafkaError, KafkaException, TopicPartition
 from confluent_kafka.avro import AvroConsumer
 
 from confluent_kafka_helpers.message import Message
+from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
 
 logger = structlog.get_logger(__name__)
@@ -59,6 +60,10 @@ class MessageGenerator:
                     logger.debug("Reached EOF")
                     raise StopIteration
                 else:
+                    statsd.increment(
+                        f'{base_metric}.loader.message.count.error',
+                        tags=self.tags
+                    )
                     raise KafkaException(message.error())
 
             if self.key_filter(self.key, message.key()):
