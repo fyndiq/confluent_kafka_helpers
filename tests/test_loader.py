@@ -1,7 +1,9 @@
-from test import config, conftest
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from tests import config, conftest
+
 from confluent_kafka_helpers import loader
 
 mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
@@ -50,6 +52,7 @@ def test_default_partitioner(key, num_partitions, expected_response):
     """
     response = loader.default_partitioner(key, num_partitions)
     assert expected_response == response
+
 
 @pytest.mark.xfail
 @patch('confluent_kafka_helpers.loader.TopicPartition', mock_topic_partition)

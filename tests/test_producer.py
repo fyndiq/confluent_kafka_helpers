@@ -1,7 +1,9 @@
-from test import config
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from tests import config
+
 from confluent_kafka_helpers import producer
 
 mock_avro_schema_registry = MagicMock()
