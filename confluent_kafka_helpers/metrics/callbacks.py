@@ -28,6 +28,7 @@ class StatsCallbackMetrics:
     # https://github.com/edenhill/librdkafka/wiki/Statistics
     def __init__(self, stats, parser=StatsParser, statsd=statsd):
         self.stats = parser(stats)
+        self.statsd = statsd
         self.base_tags = [f'instance_type:{self.stats.type}']
 
         self._send_stats()
@@ -37,7 +38,7 @@ class StatsCallbackMetrics:
 
     def _send_stats(self):
         base = f'{base_metric}.librdkafka'
-        gauge = partial(statsd.gauge, tags=self.base_tags)
+        gauge = partial(self.statsd.gauge, tags=self.base_tags)
 
         gauge(f'{base}.replyq', self.stats.replyq)
         gauge(f'{base}.msg_cnt', self.stats.msg_cnt)
@@ -49,7 +50,7 @@ class StatsCallbackMetrics:
         base = f'{base_metric}.librdkafka.broker'
         for b in self.stats.brokers:
             tags = self.base_tags + [f'broker:{b.name}']
-            gauge = partial(statsd.gauge, tags=tags)
+            gauge = partial(self.statsd.gauge, tags=tags)
 
             gauge(f'{base}.outbuf_cnt', b.outbuf_cnt)
             gauge(f'{base}.outbuf_msg_cnt', b.outbuf_msg_cnt)
@@ -91,7 +92,7 @@ class StatsCallbackMetrics:
                 tags = self.base_tags + [
                     f'topic:{topic.topic}', f'partition:{p.partition}'
                 ]
-                gauge = partial(statsd.gauge, tags=tags)
+                gauge = partial(self.statsd.gauge, tags=tags)
 
                 gauge(f'{base}.msgq_cnt', p.msgq_cnt)
                 gauge(f'{base}.msgq_bytes', p.msgq_bytes)
@@ -114,7 +115,7 @@ class StatsCallbackMetrics:
 
     def _send_cgrp_stats(self):
         base = f'{base_metric}.librdkafka.cgrp'
-        gauge = partial(statsd.gauge, tags=self.base_tags)
+        gauge = partial(self.statsd.gauge, tags=self.base_tags)
 
         gauge(f'{base}.rebalance_age', self.stats.cgrp['rebalance_age'])
         gauge(f'{base}.rebalance_cnt', self.stats.cgrp['rebalance_cnt'])
