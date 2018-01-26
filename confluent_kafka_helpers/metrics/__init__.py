@@ -17,6 +17,7 @@ class TimedNullDecorator:
     def __call__(self, f):
         def wrapped(*args, **kwargs):
             return f(*args, **kwargs)
+
         return wrapped
 
     def __exit__(self, *args):
