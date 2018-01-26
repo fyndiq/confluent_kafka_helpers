@@ -2,7 +2,7 @@ import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 
 from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_on_delivery_cb, get_callback)
+    default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback)
 from confluent_kafka_helpers.schema_registry import (
     AvroSchemaRegistry, SchemaNotFound)
 
@@ -24,7 +24,8 @@ class AvroProducer(ConfluentAvroProducer):
         'api.version.request': True,
         'queue.buffering.max.ms': 0,
         'socket.blocking.max.ms': 1,
-        'acks': 'all'
+        'acks': 'all',
+        'statistics.interval.ms': 15000
     }
 
     def __init__(self, config, value_serializer=None,
@@ -36,6 +37,9 @@ class AvroProducer(ConfluentAvroProducer):
         )
         config['error_cb'] = get_callback(
             config.pop('error_cb', None), default_error_cb
+        )
+        config['stats_cb'] = get_callback(
+            config.pop('stats_cb', None), default_stats_cb
         )
 
         schema_registry_url = config['schema.registry.url']

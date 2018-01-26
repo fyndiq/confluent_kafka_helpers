@@ -2,7 +2,8 @@ import structlog
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
-from confluent_kafka_helpers.callbacks import default_error_cb, get_callback
+from confluent_kafka_helpers.callbacks import (
+    default_error_cb, default_stats_cb, get_callback)
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 
@@ -21,7 +22,8 @@ class AvroConsumer:
         'fetch.wait.max.ms': 10,
         'fetch.error.backoff.ms': 0,
         'session.timeout.ms': 6000,
-        'api.version.request': True
+        'api.version.request': True,
+        'statistics.interval.ms': 15000
     }
 
     def __init__(self, config):
@@ -30,10 +32,13 @@ class AvroConsumer:
         self.poll_timeout = config.pop('poll_timeout', 0.1)
 
         self.config = {**self.DEFAULT_CONFIG, **config}
-        self.topics = self._get_topics(self.config)
-        config['error_cb'] = get_callback(
+        self.config['error_cb'] = get_callback(
             config.pop('error_cb', None), default_error_cb
         )
+        self.config['stats_cb'] = get_callback(
+            config.pop('stats_cb', None), default_stats_cb
+        )
+        self.topics = self._get_topics(self.config)
 
         logger.debug("Initializing consumer", config=self.config)
         self.consumer = ConfluentAvroConsumer(self.config)
