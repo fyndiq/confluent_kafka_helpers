@@ -1,4 +1,5 @@
 import atexit
+import socket
 import uuid
 import zlib
 from functools import partial
@@ -56,7 +57,7 @@ class MessageGenerator:
 
             if message.error():
                 if message.error().code() == KafkaError._PARTITION_EOF:
-                    logger.debug("Reached EOF")
+                    logger.debug("Reached end of partition")
                     raise StopIteration
                 else:
                     raise KafkaException(message.error())
@@ -74,12 +75,14 @@ class AvroMessageLoader:
             'auto.offset.reset': 'earliest'
         },
         'fetch.wait.max.ms': 10,
+        'fetch.message.max.bytes': 10500,
         'offset.store.method': 'none',
         'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
         'session.timeout.ms': 6000,
         'group.id': str(uuid.uuid4()),
-        'api.version.request': True
+        'api.version.request': True,
+        'client.id': socket.gethostname()
     }
 
     def __init__(self, config):
@@ -98,13 +101,13 @@ class AvroMessageLoader:
         )
 
         consumer_config = {**self.DEFAULT_CONFIG, **config['consumer']}
-        logger.debug("Initializing loader", config=consumer_config)
+        logger.info("Initializing loader", config=consumer_config)
         self.consumer = AvroConsumer(consumer_config)
 
         atexit.register(self._close)
 
     def _close(self):
-        logger.debug("Closing loader")
+        logger.info("Closing consumer (loader)")
         self.consumer.close()
 
     def load(self, key, key_filter=default_key_filter,

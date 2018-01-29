@@ -1,7 +1,8 @@
-from test import config, conftest
+from tests import config, conftest
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from confluent_kafka_helpers import loader
 
 mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
@@ -40,10 +41,10 @@ def test_avro_message_loader_init(avro_message_loader):
     assert mock_avro_schema_registry.call_count == 1
 
 
-@pytest.mark.parametrize('key, num_partitions, expected_response', [
-    (b'90', 100, 65),
-    (b'15', 10, 8)
-])
+@pytest.mark.parametrize(
+    'key, num_partitions, expected_response',
+    [(b'90', 100, 65), (b'15', 10, 8)]
+)
 def test_default_partitioner(key, num_partitions, expected_response):
     """
     Test the default partitioner with different parameters
@@ -51,10 +52,18 @@ def test_default_partitioner(key, num_partitions, expected_response):
     response = loader.default_partitioner(key, num_partitions)
     assert expected_response == response
 
-@pytest.mark.xfail
+
 @patch('confluent_kafka_helpers.loader.TopicPartition', mock_topic_partition)
 def test_avro_message_loader_load(avro_message_loader):
-    messages = avro_message_loader.load(key=1, partitioner=mock_partitioner)
+    # TODO: refactor
+    # reset mock cause the messages has already been consumed at this point...
+    message = conftest.PollReturnMock()
+    conftest.mock_confluent_avro_consumer.poll.side_effect = [
+        message, StopIteration
+    ]
+    messages = list(
+        avro_message_loader.load(key=1, partitioner=mock_partitioner)
+    )
 
     assert len(messages) == 1
-    assert messages[0] == b'foobar'
+    assert messages[0].value == b'foobar'

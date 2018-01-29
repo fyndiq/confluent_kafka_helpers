@@ -1,8 +1,9 @@
+codecov
+confluent-kafka[avro]
+fastavro==0.16.7
 ipdb
-structlog
 pytest
 pytest-coverage
 pytest-mock
 pytest-sugar
-codecov
-confluent-kafka[avro]
+structlog
