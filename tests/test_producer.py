@@ -1,7 +1,8 @@
-from tests import config
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from tests import config
 
 from confluent_kafka_helpers import producer
 

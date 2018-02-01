@@ -1,7 +1,9 @@
 codecov
-confluent-kafka[avro]
-fastavro==0.16.7
+confluent-kafka[avro]==0.11.0
+fastavro[ujson]==0.16.7
+flake8
 ipdb
+mypy
 pytest
 pytest-coverage
 pytest-mock

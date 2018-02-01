@@ -4,7 +4,10 @@ import structlog
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
+from confluent_kafka_helpers.callbacks import (
+    default_error_cb, default_stats_cb, get_callback)
 from confluent_kafka_helpers.message import Message
+from confluent_kafka_helpers.metrics import base_metric, statsd
 
 logger = structlog.get_logger(__name__)
 
@@ -23,14 +26,22 @@ class AvroConsumer:
         'fetch.message.max.bytes': 10500,
         'session.timeout.ms': 6000,
         'api.version.request': True,
+        'statistics.interval.ms': 15000,
         'client.id': socket.gethostname()
     }
 
     def __init__(self, config):
         self.non_blocking = config.pop('non_blocking', False)
         self.stop_on_eof = config.pop('stop_on_eof', False)
+        self.poll_timeout = config.pop('poll_timeout', 0.1)
+
         self.config = {**self.DEFAULT_CONFIG, **config}
-        self.poll_timeout = config.pop('poll.timeout', 0.1)
+        self.config['error_cb'] = get_callback(
+            config.pop('error_cb', None), default_error_cb
+        )
+        self.config['stats_cb'] = get_callback(
+            config.pop('stats_cb', None), default_stats_cb
+        )
         self.topics = self._get_topics(self.config)
 
         logger.info("Initializing consumer", config=self.config)
@@ -68,6 +79,7 @@ class AvroConsumer:
                     yield None
                 continue
 
+            statsd.increment(f'{base_metric}.consumer.message.count.total')
             if message.error():
                 error_code = message.error().code()
                 if error_code == KafkaError._PARTITION_EOF:
@@ -76,6 +88,9 @@ class AvroConsumer:
                     else:
                         continue
                 else:
+                    statsd.increment(
+                        f'{base_metric}.consumer.message.count.error'
+                    )
                     raise KafkaException(message.error())
 
             yield Message(message)

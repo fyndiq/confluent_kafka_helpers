@@ -5,7 +5,6 @@ import pytest
 from tests import config, conftest
 
 from confluent_kafka_helpers import loader
-from confluent_kafka_helpers.message import Message
 
 mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
     name='ConfluentAvroConsumerMock'
