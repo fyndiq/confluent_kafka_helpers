@@ -1,6 +1,8 @@
 import atexit
+import socket
 import uuid
 import zlib
+from collections import defaultdict
 from functools import partial
 
 import structlog
@@ -31,11 +33,30 @@ def default_key_filter(key, message_key):
     return key == message_key
 
 
+def find_duplicated_messages(messages, logger=logger):
+    """
+    Find and log duplicated messages.
+
+    Args:
+        messages: List of messages.
+    """
+    duplicates = defaultdict(list)
+    for i, message in enumerate(messages):
+        duplicates[message].append(i)
+
+    for message, pos in sorted(duplicates.items()):
+        if len(pos) > 1:
+            logger.critical(
+                "Duplicated messages found", message=message, pos=pos
+            )
+
+
 class MessageGenerator:
     def __init__(self, consumer, key, key_filter):
         self.consumer = consumer
         self.key = key
         self.key_filter = key_filter
+        self.messages = []
 
     def __iter__(self):
         return self
@@ -48,6 +69,7 @@ class MessageGenerator:
 
     def __exit__(self, *args, **kwargs):
         self.consumer.unassign()
+        find_duplicated_messages(self.messages)
 
     def _message_generator(self):
         while True:
@@ -57,7 +79,7 @@ class MessageGenerator:
 
             if message.error():
                 if message.error().code() == KafkaError._PARTITION_EOF:
-                    logger.debug("Reached EOF")
+                    logger.debug("Reached end of partition")
                     raise StopIteration
                 else:
                     statsd.increment(
@@ -67,7 +89,26 @@ class MessageGenerator:
                     raise KafkaException(message.error())
 
             if self.key_filter(self.key, message.key()):
-                yield Message(message)
+                message = Message(message)
+                # since we use at-least-once message delivery semantics
+                # there is a possibility that we read the same message
+                # multiple times.
+                #
+                # so the first step so "solve" this problem is to identify
+                # if this is even a problem at all, and too see how often
+                # this occurs.
+                #
+                # if we store all messages we can identify if there are
+                # any duplicates.
+                #
+                # this basically defeats the purpose of having a generator.
+                #
+                # if we identify that this is an actual problem we should
+                # probably remove the generator and return a de-duplicated
+                # list instead.
+                self.messages.append(message)
+
+                yield message
 
 
 class AvroMessageLoader:
@@ -79,12 +120,14 @@ class AvroMessageLoader:
             'auto.offset.reset': 'earliest'
         },
         'fetch.wait.max.ms': 10,
+        'fetch.message.max.bytes': 10500,
         'offset.store.method': 'none',
         'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
         'session.timeout.ms': 6000,
         'group.id': str(uuid.uuid4()),
-        'api.version.request': True
+        'api.version.request': True,
+        'client.id': socket.gethostname()
     }
 
     def __init__(self, config):
@@ -103,13 +146,13 @@ class AvroMessageLoader:
         )
 
         consumer_config = {**self.DEFAULT_CONFIG, **config['consumer']}
-        logger.debug("Initializing loader", config=consumer_config)
+        logger.info("Initializing loader", config=consumer_config)
         self.consumer = AvroConsumer(consumer_config)
 
         atexit.register(self._close)
 
     def _close(self):
-        logger.debug("Closing loader")
+        logger.info("Closing consumer (loader)")
         self.consumer.close()
 
     def load(self, key, key_filter=default_key_filter,

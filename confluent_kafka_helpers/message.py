@@ -6,6 +6,19 @@ kafka messages.
 import datetime
 
 
+def kafka_timestamp_to_datetime(timestamp):
+    return datetime.datetime.utcfromtimestamp(
+        timestamp / 1000.0
+    ) if timestamp is not None else None
+
+
+def extract_timestamp_from_message(kafka_message):
+    timestamp_type, timestamp = kafka_message.timestamp()
+    if timestamp_type == 0 or timestamp <= 0:
+        timestamp = None
+    return timestamp
+
+
 class Message:
     __slots__ = ["value", "_raw", "_meta"]
 
@@ -20,18 +33,14 @@ class Message:
     def __bool__(self):
         return True if self.value else False
 
+    def __eq__(self, other):
+        return self._raw == other._raw
 
-def kafka_timestamp_to_datetime(timestamp):
-    return datetime.datetime.utcfromtimestamp(
-        timestamp / 1000.0
-    ) if timestamp is not None else None
+    def __hash__(self):
+        return hash((str(self.value), self._meta.key, self._meta.timestamp))
 
-
-def extract_timestamp_from_message(kafka_message):
-    timestamp_type, timestamp = kafka_message.timestamp()
-    if timestamp_type == 0 or timestamp <= 0:
-        timestamp = None
-    return timestamp
+    def __lt__(self, other):
+        return hash(self) < hash(other)
 
 
 class MessageMetadata:

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
+
 from confluent_kafka_helpers import consumer
 
 number_of_messages = 1
@@ -16,7 +17,7 @@ class PollReturnMock:
     key = MagicMock()
     key.return_value = 1
     offset = MagicMock()
-    offset.side_effect = [i for i in range(0, number_of_messages)]
+    offset.return_value = 0
     partition = MagicMock()
     partition.return_value = 1
     topic = MagicMock()
@@ -27,7 +28,7 @@ class PollReturnMock:
 
 class ConfluentAvroConsumerMock(MagicMock):
     subscribe = MagicMock()
-    poll = MagicMock(name='poll', return_value=PollReturnMock())
+    poll = MagicMock(name='poll', side_effect=[PollReturnMock(), StopIteration])
     close = MagicMock()
     get_watermark_offsets = MagicMock(
         name='watermark_test', return_value=[1, number_of_messages]

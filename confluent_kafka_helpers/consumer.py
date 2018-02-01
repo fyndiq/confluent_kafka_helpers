@@ -1,3 +1,5 @@
+import socket
+
 import structlog
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
@@ -17,13 +19,15 @@ class AvroConsumer:
         'log.thread.name': False,
         'enable.auto.commit': False,
         'default.topic.config': {
-            'auto.offset.reset': 'earliest'
+            'auto.offset.reset': 'latest'
         },
         'fetch.wait.max.ms': 10,
         'fetch.error.backoff.ms': 0,
+        'fetch.message.max.bytes': 10500,
         'session.timeout.ms': 6000,
         'api.version.request': True,
-        'statistics.interval.ms': 15000
+        'statistics.interval.ms': 15000,
+        'client.id': socket.gethostname()
     }
 
     def __init__(self, config):
@@ -40,7 +44,7 @@ class AvroConsumer:
         )
         self.topics = self._get_topics(self.config)
 
-        logger.debug("Initializing consumer", config=self.config)
+        logger.info("Initializing consumer", config=self.config)
         self.consumer = ConfluentAvroConsumer(self.config)
         self.consumer.subscribe(self.topics)
 
@@ -64,7 +68,7 @@ class AvroConsumer:
         #  - stops consuming
         #  - commit offsets (only on auto commit)
         #  - leave consumer group
-        logger.debug("Closing consumer")
+        logger.info("Closing consumer")
         self.consumer.close()
 
     def _message_generator(self):

@@ -1,3 +1,6 @@
+import atexit
+import socket
+
 import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 
@@ -25,7 +28,8 @@ class AvroProducer(ConfluentAvroProducer):
         'queue.buffering.max.ms': 0,
         'socket.blocking.max.ms': 1,
         'acks': 'all',
-        'statistics.interval.ms': 15000
+        'statistics.interval.ms': 15000,
+        'client.id': socket.gethostname()
     }
 
     def __init__(self, config, value_serializer=None,
@@ -53,8 +57,14 @@ class AvroProducer(ConfluentAvroProducer):
         default_topic_schema = next(iter(self.topic_schemas.values()))
         self.default_topic, *_ = default_topic_schema
 
-        logger.debug("Initializing producer", config=config)
+        logger.info("Initializing producer", config=config)
+        atexit.register(self._close)
+
         super().__init__(config)
+
+    def _close(self):
+        logger.info("Flushing producer")
+        super().flush()
 
     def _get_subject_names(self, topic):
         """
