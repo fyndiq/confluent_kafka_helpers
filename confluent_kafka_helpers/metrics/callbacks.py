@@ -120,9 +120,11 @@ class StatsCallbackMetrics:
 
     def _send_cgrp_stats(self):
         cgrp = self.stats.cgrp
-        if cgrp:
-            base = f'{base_metric}.librdkafka.cgrp'
-            gauge = partial(self.statsd.gauge, tags=self.base_tags)
-            gauge(f'{base}.rebalance_age', cgrp['rebalance_age'])
-            gauge(f'{base}.rebalance_cnt', cgrp['rebalance_cnt'])
-            gauge(f'{base}.assignment_size', cgrp['assignment_size'])
+        if not cgrp:
+            return
+
+        base = f'{base_metric}.librdkafka.cgrp'
+        gauge = partial(self.statsd.gauge, tags=self.base_tags)
+        gauge(f'{base}.rebalance_age', cgrp['rebalance_age'])
+        gauge(f'{base}.rebalance_cnt', cgrp['rebalance_cnt'])
+        gauge(f'{base}.assignment_size', cgrp['assignment_size'])
