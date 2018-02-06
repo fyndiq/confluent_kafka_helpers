@@ -25,7 +25,12 @@ def on_delivery_cb_metrics(error, message, statsd=statsd, logger=logger):
 
 
 class StatsCallbackMetrics:
-    # https://github.com/edenhill/librdkafka/wiki/Statistics
+    """
+    Send librdkafka statistics to Datadog.
+
+    For more information see:
+    https://github.com/edenhill/librdkafka/wiki/Statistics
+    """
     def __init__(self, stats, parser=StatsParser, statsd=statsd):
         self.stats = parser(stats)
         self.statsd = statsd
@@ -114,9 +119,12 @@ class StatsCallbackMetrics:
                 gauge(f'{base}.rx_ver_drops', p.rx_ver_drops)
 
     def _send_cgrp_stats(self):
+        cgrp = self.stats.cgrp
+        if not cgrp:
+            return
+
         base = f'{base_metric}.librdkafka.cgrp'
         gauge = partial(self.statsd.gauge, tags=self.base_tags)
-
-        gauge(f'{base}.rebalance_age', self.stats.cgrp['rebalance_age'])
-        gauge(f'{base}.rebalance_cnt', self.stats.cgrp['rebalance_cnt'])
-        gauge(f'{base}.assignment_size', self.stats.cgrp['assignment_size'])
+        gauge(f'{base}.rebalance_age', cgrp['rebalance_age'])
+        gauge(f'{base}.rebalance_cnt', cgrp['rebalance_cnt'])
+        gauge(f'{base}.assignment_size', cgrp['assignment_size'])

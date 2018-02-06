@@ -2,7 +2,7 @@ import ujson
 
 from confluent_kafka_helpers.metrics.stats import StatsParser
 
-stats = ujson.dumps({
+stats = {
     'brokers': {
         'b1': {
             'name': 'b1'
@@ -17,14 +17,23 @@ stats = ujson.dumps({
                 }
             }
         }
+    },
+    'cgrp': {
+        'foo': 'bar'
     }
-})
+}
 
 
 class StatsParserTests:
-    def test_should_parse_stats_str(self):
-        parsed = StatsParser(stats)
+    def test_get_top_level_attrs_should_return_str(self):
+        parsed = StatsParser(ujson.dumps(stats))
 
         assert parsed.brokers[0].name == 'b1'
         assert parsed.topics[0].topic == 't1'
         assert parsed.topics[0].partitions[0].partition == 'p1'
+        assert parsed.cgrp['foo'] == 'bar'
+
+    def test_get_cgrp_attr_should_return_none(self):
+        stats.pop('cgrp')
+        parsed = StatsParser(ujson.dumps(stats))
+        assert parsed.cgrp is None
