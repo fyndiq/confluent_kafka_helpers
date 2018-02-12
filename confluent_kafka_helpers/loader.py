@@ -83,8 +83,7 @@ class MessageGenerator:
                     raise StopIteration
                 else:
                     statsd.increment(
-                        f'{base_metric}.loader.message.count.error',
-                        tags=self.tags
+                        f'{base_metric}.loader.message.count.error'
                     )
                     raise KafkaException(message.error())
 
