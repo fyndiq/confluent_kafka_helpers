@@ -25,8 +25,7 @@ class AvroProducer(ConfluentAvroProducer):
     DEFAULT_CONFIG = {
         'log.connection.close': False,
         'api.version.request': True,
-        'queue.buffering.max.ms': 0,
-        'socket.blocking.max.ms': 1,
+        'queue.buffering.max.ms': 100,
         'acks': 'all',
         'statistics.interval.ms': 15000,
         'client.id': socket.gethostname()
