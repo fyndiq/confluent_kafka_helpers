@@ -42,7 +42,9 @@ class AvroConsumerLazyDecode(ConfluentAvroConsumer):
                 message.set_key(decoded_key)
         return message
 
-
+    def decode_message_value(self, message):
+        decoded_value = self._serializer.decode_message(message.value())
+        message.set_value(decoded_value)
 
 
 class AvroConsumer:

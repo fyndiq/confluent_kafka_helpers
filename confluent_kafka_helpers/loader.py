@@ -131,8 +131,6 @@ class AvroMessageLoader:
         'group.id': str(uuid.uuid4()),
         'api.version.request': True,
         'client.id': socket.gethostname(),
-
-        'lazy_decode_message_value': True,
     }
 
     def __init__(self, config):
