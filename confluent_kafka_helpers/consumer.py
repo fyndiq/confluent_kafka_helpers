@@ -2,7 +2,7 @@ import socket
 
 import structlog
 from confluent_kafka import KafkaError, KafkaException
-from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
+from confluent_kafka.avro import Consumer as ConfluentAvroConsumer
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_stats_cb, get_callback)
@@ -13,7 +13,7 @@ logger = structlog.get_logger(__name__)
 
 
 
-class AvroConsumerLazyDecode(ConfluentAvroConsumer):
+class AvroConsumerLazyDecode(Consumer):
     def poll(self, timeout=None):
         """
         This is an overriden method from confluent_kafka.Consumer class. This handles message
