@@ -37,7 +37,7 @@ class AvroConsumerLazyDecode(Consumer):
         """
         if timeout is None:
             timeout = -1
-        message = super(Consumer, self).poll(timeout)
+        message = super(AvroConsumerLazyDecode, self).poll(timeout)
         if message is None:
             return None
         if not message.value() and not message.key():
