@@ -119,7 +119,6 @@ class AvroMessageLoader:
             'auto.offset.reset': 'earliest'
         },
         'fetch.wait.max.ms': 10,
-        'fetch.message.max.bytes': 10500,
         'offset.store.method': 'none',
         'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
