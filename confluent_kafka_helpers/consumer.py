@@ -2,7 +2,7 @@ import socket
 
 import structlog
 from confluent_kafka import KafkaError, KafkaException
-from confluent_kafka.avro import Consumer as ConfluentAvroConsumer
+from confluent_kafka.avro import Consumer
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_stats_cb, get_callback)
