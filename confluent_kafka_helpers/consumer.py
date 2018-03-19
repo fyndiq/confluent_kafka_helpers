@@ -12,6 +12,39 @@ from confluent_kafka_helpers.metrics import base_metric, statsd
 logger = structlog.get_logger(__name__)
 
 
+
+class AvroConsumerLazyDecode(ConfluentAvroConsumer):
+    def poll(self, timeout=None):
+        """
+        This is an overriden method from confluent_kafka.Consumer class. This handles message
+        deserialization using avro schema
+
+        @:param timeout
+        @:return message object with deserialized key and value as dict objects
+        """
+        if timeout is None:
+            timeout = -1
+        message = super(AvroConsumer, self).poll(timeout)
+        if message is None:
+            return None
+        if not message.value() and not message.key():
+            return message
+        if not message.error():
+            # We are not decoding the message value now, because we filter
+            # the messages by key in the AvroMessageLoader
+
+            #if message.value() is not None:
+            #    decoded_value = self._serializer.decode_message(message.value())
+            #    message.set_value(decoded_value)
+
+            if message.key() is not None:
+                decoded_key = self._serializer.decode_message(message.key())
+                message.set_key(decoded_key)
+        return message
+
+
+
+
 class AvroConsumer:
 
     DEFAULT_CONFIG = {

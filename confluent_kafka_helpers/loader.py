@@ -7,8 +7,8 @@ from functools import partial
 
 import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
-from confluent_kafka.avro import AvroConsumer
 
+from confluent_kafka_helpers.consumer import AvroConsumerLazyDecode
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
@@ -152,7 +152,7 @@ class AvroMessageLoader:
 
         consumer_config = {**self.DEFAULT_CONFIG, **config['consumer']}
         logger.info("Initializing loader", config=consumer_config)
-        self.consumer = AvroConsumer(consumer_config)
+        self.consumer = AvroConsumerLazyDecode(consumer_config)
 
         atexit.register(self._close)
 
@@ -195,4 +195,5 @@ class AvroMessageLoader:
             "Loading messages from repository", topic=self.topic, key=key,
             partition_num=partition_num
         )
+
         return MessageGenerator(self.consumer, key, key_filter)
