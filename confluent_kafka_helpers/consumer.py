@@ -3,7 +3,8 @@ import socket
 import structlog
 from confluent_kafka import KafkaError, KafkaException
 from confluent_kafka.avro import Consumer
-from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
+from confluent_kafka.avro.cached_schema_registry_client import CachedSchemaRegistryClient
+from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_stats_cb, get_callback)
@@ -13,8 +14,19 @@ from confluent_kafka_helpers.metrics import base_metric, statsd
 logger = structlog.get_logger(__name__)
 
 
+class AvroConsumerLazyDecode(Consumer):
+    def __init__(self, config, schema_registry=None):
+        schema_registry_url = config.pop("schema.registry.url", None)
+        if schema_registry is None:
+            if schema_registry_url is None:
+                raise ValueError("Missing parameter: schema.registry.url")
+            schema_registry = CachedSchemaRegistryClient(url=schema_registry_url)
+        elif schema_registry_url is not None:
+            raise ValueError("Cannot pass schema_registry along with schema.registry.url config")
 
-class AvroConsumerLazyDecode(ConfluentAvroConsumer):
+        super(AvroConsumer, self).__init__(config)
+        self._serializer = MessageSerializer(schema_registry)
+
     def poll(self, timeout=None):
         """
         This is an overriden method from confluent_kafka.Consumer class. This handles message
