@@ -24,7 +24,7 @@ class AvroConsumerLazyDecode(Consumer):
         elif schema_registry_url is not None:
             raise ValueError("Cannot pass schema_registry along with schema.registry.url config")
 
-        super(AvroConsumer, self).__init__(config)
+        super(AvroConsumerLazyDecode, self).__init__(config)
         self._serializer = MessageSerializer(schema_registry)
 
     def poll(self, timeout=None):
