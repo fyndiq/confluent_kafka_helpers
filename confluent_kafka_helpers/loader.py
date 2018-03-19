@@ -88,6 +88,10 @@ class MessageGenerator:
                     raise KafkaException(message.error())
 
             if self.key_filter(self.key, message.key()):
+                # This will decode the message after the filtering by key
+                # instead of letting the consumer decode it all the time
+                self.consumer.decode_message_value(message)
+
                 message = Message(message)
                 # since we use at-least-once message delivery semantics
                 # there is a possibility that we read the same message
@@ -126,7 +130,9 @@ class AvroMessageLoader:
         'session.timeout.ms': 6000,
         'group.id': str(uuid.uuid4()),
         'api.version.request': True,
-        'client.id': socket.gethostname()
+        'client.id': socket.gethostname(),
+
+        'lazy_decode_message_value': True,
     }
 
     def __init__(self, config):
