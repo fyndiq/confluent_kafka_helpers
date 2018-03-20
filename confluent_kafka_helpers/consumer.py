@@ -1,8 +1,10 @@
 import socket
 
 import structlog
-from confluent_kafka import KafkaError, KafkaException
+from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
+from confluent_kafka.avro.cached_schema_registry_client import CachedSchemaRegistryClient  # noqa
+from confluent_kafka.avro.serializer.message_serializer import MessageSerializer  # noqa
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_stats_cb, get_callback)
@@ -107,3 +109,61 @@ class AvroConsumer:
     @property
     def is_auto_commit(self):
         return self.config.get('enable.auto.commit', True)
+
+
+class AvroRawConsumer(Consumer):
+    """
+    By default the Confluent AvroConsumer decode all messages in the partition.
+
+    This consumer uses a lazy approach, it doesn't decode the messages, just
+    provide the methods so we can do it manually.
+
+    We use this approach, because we want to check the key messages before
+    decoding the message, this will avoid performance issues.
+    """
+    def __init__(self, config, schema_registry=None):
+        schema_registry_url = config.pop("schema.registry.url", None)
+        if schema_registry is None:
+            if schema_registry_url is None:
+                raise ValueError("Missing parameter: schema.registry.url")
+            schema_registry = CachedSchemaRegistryClient(
+                url=schema_registry_url
+            )
+        elif schema_registry_url is not None:
+            raise ValueError("Cannot pass schema_registry along with schema.registry.url config")  # noqa
+
+        self._lazy_loading = config.pop('lazy_loading', False)
+        super(AvroRawConsumer, self).__init__(config)
+        self._serializer = MessageSerializer(schema_registry)
+
+    def poll(self, timeout=None):
+        """
+        This is an overriden method from confluent_kafka.AvroConsumer class.
+
+        @:param timeout
+        @:return a raw message object
+        """
+        if timeout is None:
+            timeout = -1
+
+        message = super(AvroRawConsumer, self).poll(timeout)
+
+        if message is None:
+            return None
+
+        if not message.value() and not message.key():
+            return message
+
+        return message
+
+    def decode_message(self, message):
+        if not message.error():
+
+            if message.value() is not None:
+                decoded_value = self._serializer.decode_message(message.value())
+                message.set_value(decoded_value)
+
+            if message.key() is not None:
+                decoded_key = self._serializer.decode_message(message.key())
+                message.set_key(decoded_key)
+        return message
