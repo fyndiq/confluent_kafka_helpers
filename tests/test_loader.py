@@ -18,7 +18,7 @@ mock_partitioner.return_value = 1
 
 
 @pytest.fixture(scope='function')
-@patch('confluent_kafka_helpers.loader.AvroConsumer', mock_avro_consumer)
+@patch('confluent_kafka_helpers.loader.AvroConsumerLazyDecode', mock_avro_consumer)
 @patch(
     'confluent_kafka_helpers.loader.AvroSchemaRegistry',
     mock_avro_schema_registry()

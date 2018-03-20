@@ -7,8 +7,8 @@ from functools import partial
 
 import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
-from confluent_kafka.avro import AvroConsumer
 
+from confluent_kafka_helpers.consumer import AvroConsumerLazyDecode
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
@@ -88,6 +88,10 @@ class MessageGenerator:
                     raise KafkaException(message.error())
 
             if self.key_filter(self.key, message.key()):
+                # This will decode the message after the filtering by key
+                # instead of letting the consumer decode it all the time
+                self.consumer.decode_message_value(message)
+
                 message = Message(message)
                 # since we use at-least-once message delivery semantics
                 # there is a possibility that we read the same message
@@ -126,7 +130,7 @@ class AvroMessageLoader:
         'session.timeout.ms': 6000,
         'group.id': str(uuid.uuid4()),
         'api.version.request': True,
-        'client.id': socket.gethostname()
+        'client.id': socket.gethostname(),
     }
 
     def __init__(self, config):
@@ -146,7 +150,7 @@ class AvroMessageLoader:
 
         consumer_config = {**self.DEFAULT_CONFIG, **config['consumer']}
         logger.info("Initializing loader", config=consumer_config)
-        self.consumer = AvroConsumer(consumer_config)
+        self.consumer = AvroConsumerLazyDecode(consumer_config)
 
         atexit.register(self._close)
 
@@ -189,4 +193,5 @@ class AvroMessageLoader:
             "Loading messages from repository", topic=self.topic, key=key,
             partition_num=partition_num
         )
+
         return MessageGenerator(self.consumer, key, key_filter)
