@@ -23,7 +23,6 @@ class AvroConsumer:
         },
         'fetch.wait.max.ms': 10,
         'fetch.error.backoff.ms': 0,
-        'fetch.message.max.bytes': 10500,
         'session.timeout.ms': 6000,
         'api.version.request': True,
         'statistics.interval.ms': 15000,
