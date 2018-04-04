@@ -111,7 +111,7 @@ class AvroConsumer:
         return self.config.get('enable.auto.commit', True)
 
 
-class AvroRawConsumer(Consumer):
+class AvroLazyConsumer(ConfluentAvroConsumer):
     """
     By default the Confluent AvroConsumer decode all messages in the partition.
 
@@ -121,44 +121,18 @@ class AvroRawConsumer(Consumer):
     We use this approach, because we want to check the key messages before
     decoding the message, this will avoid performance issues.
     """
-    def __init__(self, config, schema_registry=None):
-        schema_registry_url = config.pop("schema.registry.url", None)
-        if schema_registry is None:
-            if schema_registry_url is None:
-                raise ValueError("Missing parameter: schema.registry.url")
-            schema_registry = CachedSchemaRegistryClient(
-                url=schema_registry_url
-            )
-        elif schema_registry_url is not None:
-            raise ValueError("Cannot pass schema_registry along with schema.registry.url config")  # noqa
-
-        self._lazy_loading = config.pop('lazy_loading', False)
-        super(AvroRawConsumer, self).__init__(config)
-        self._serializer = MessageSerializer(schema_registry)
-
     def poll(self, timeout=None):
-        """
-        This is an overriden method from confluent_kafka.AvroConsumer class.
-
-        @:param timeout
-        @:return a raw message object
-        """
         if timeout is None:
             timeout = -1
 
-        message = super(AvroRawConsumer, self).poll(timeout)
-
-        if message is None:
-            return None
-
-        if not message.value() and not message.key():
-            return message
-
+        # We use the Consumer.poll because we want to avoid the
+        # ConfluentAvroConsumer.poll, the later is doing the decode
+        # of all the messages and we want to have a lazy approach
+        message = Consumer.poll(self, timeout)
         return message
 
     def decode_message(self, message):
         if not message.error():
-
             if message.value() is not None:
                 decoded_value = self._serializer.decode_message(message.value())
                 message.set_value(decoded_value)
