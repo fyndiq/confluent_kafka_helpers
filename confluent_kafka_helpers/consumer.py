@@ -1,8 +1,10 @@
 import socket
 
 import structlog
-from confluent_kafka import KafkaError, KafkaException
+from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
+from confluent_kafka.avro.cached_schema_registry_client import CachedSchemaRegistryClient  # noqa
+from confluent_kafka.avro.serializer.message_serializer import MessageSerializer  # noqa
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_stats_cb, get_callback)
@@ -106,3 +108,35 @@ class AvroConsumer:
     @property
     def is_auto_commit(self):
         return self.config.get('enable.auto.commit', True)
+
+
+class AvroLazyConsumer(ConfluentAvroConsumer):
+    """
+    By default the Confluent AvroConsumer decode all messages in the partition.
+
+    This consumer uses a lazy approach, it doesn't decode the messages, just
+    provide the methods so we can do it manually.
+
+    We use this approach, because we want to check the key messages before
+    decoding the message, this will avoid performance issues.
+    """
+    def poll(self, timeout=None):
+        if timeout is None:
+            timeout = -1
+
+        # We use the Consumer.poll because we want to avoid the
+        # ConfluentAvroConsumer.poll, the later is doing the decode
+        # of all the messages and we want to have a lazy approach
+        message = Consumer.poll(self, timeout)
+        return message
+
+    def decode_message(self, message):
+        if not message.error():
+            if message.value() is not None:
+                decoded_value = self._serializer.decode_message(message.value())
+                message.set_value(decoded_value)
+
+            if message.key() is not None:
+                decoded_key = self._serializer.decode_message(message.key())
+                message.set_key(decoded_key)
+        return message
