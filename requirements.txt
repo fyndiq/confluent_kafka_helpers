@@ -1,5 +1,5 @@
 codecov
-confluent-kafka[avro]==0.11.0
+git+https://github.com/confluentinc/confluent-kafka-python@v0.11.4#egg=confluent-kafka[avro]
 fastavro[ujson]==0.16.7
 flake8
 ipdb
