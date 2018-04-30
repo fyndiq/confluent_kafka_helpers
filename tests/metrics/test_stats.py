@@ -1,4 +1,4 @@
-import ujson
+import json
 
 from confluent_kafka_helpers.metrics.stats import StatsParser
 
@@ -26,7 +26,7 @@ stats = {
 
 class StatsParserTests:
     def test_get_top_level_attrs_should_return_str(self):
-        parsed = StatsParser(ujson.dumps(stats))
+        parsed = StatsParser(json.dumps(stats))
 
         assert parsed.brokers[0].name == 'b1'
         assert parsed.topics[0].topic == 't1'
@@ -35,5 +35,5 @@ class StatsParserTests:
 
     def test_get_cgrp_attr_should_return_none(self):
         stats.pop('cgrp')
-        parsed = StatsParser(ujson.dumps(stats))
+        parsed = StatsParser(json.dumps(stats))
         assert parsed.cgrp is None
