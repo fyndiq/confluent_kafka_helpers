@@ -13,7 +13,4 @@ setup(name="confluent_kafka_helpers",
           'confluent-kafka[avro]==0.11.4',
           'fastavro[ujson]==0.16.7'
       ],
-      dependency_links=[
-          'https://github.com/confluentinc/confluent-kafka-python/archive/v0.11.4.zip#egg=confluent-kafka[avro]'
-      ],
       zip_safe=False)
