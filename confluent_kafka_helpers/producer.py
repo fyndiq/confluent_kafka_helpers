@@ -23,12 +23,13 @@ class TopicNotRegistered(Exception):
 class AvroProducer(ConfluentAvroProducer):
 
     DEFAULT_CONFIG = {
-        'log.connection.close': False,
-        'api.version.request': True,
-        'queue.buffering.max.ms': 100,
         'acks': 'all',
+        'api.version.request': True,
+        'client.id': socket.gethostname(),
+        'log.connection.close': False,
+        'max.in.flight': 1,
+        'queue.buffering.max.ms': 100,
         'statistics.interval.ms': 15000,
-        'client.id': socket.gethostname()
     }
 
     def __init__(self, config, value_serializer=None,
