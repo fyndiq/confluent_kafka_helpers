@@ -17,18 +17,19 @@ logger = structlog.get_logger(__name__)
 class AvroConsumer:
 
     DEFAULT_CONFIG = {
-        'log.connection.close': False,
-        'log.thread.name': False,
-        'enable.auto.commit': False,
+        'api.version.request': True,
+        'client.id': socket.gethostname(),
         'default.topic.config': {
             'auto.offset.reset': 'latest'
         },
-        'fetch.wait.max.ms': 10,
+        'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
+        'fetch.message.max.bytes': 1024 * 1024,
+        'fetch.wait.max.ms': 10,
+        'log.connection.close': False,
+        'log.thread.name': False,
         'session.timeout.ms': 6000,
-        'api.version.request': True,
-        'statistics.interval.ms': 15000,
-        'client.id': socket.gethostname()
+        'statistics.interval.ms': 15000
     }
 
     def __init__(self, config):
