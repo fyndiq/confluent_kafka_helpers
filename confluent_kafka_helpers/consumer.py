@@ -24,7 +24,6 @@ class AvroConsumer:
         },
         'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
-        'fetch.message.max.bytes': 1024 * 1024,
         'fetch.wait.max.ms': 10,
         'log.connection.close': False,
         'log.thread.name': False,
