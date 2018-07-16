@@ -28,7 +28,8 @@ class AvroConsumer:
         'log.connection.close': False,
         'log.thread.name': False,
         'session.timeout.ms': 6000,
-        'statistics.interval.ms': 15000
+        'statistics.interval.ms': 15000,
+        'socket.keepalive.enable': True
     }
 
     def __init__(self, config):

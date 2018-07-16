@@ -30,6 +30,7 @@ class AvroProducer(ConfluentAvroProducer):
         'max.in.flight': 1,
         'queue.buffering.max.ms': 100,
         'statistics.interval.ms': 15000,
+        'socket.keepalive.enable': True
     }
 
     def __init__(self, config, value_serializer=None,
