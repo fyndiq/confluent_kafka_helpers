@@ -3,13 +3,13 @@ import socket
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
-from confluent_kafka.avro.cached_schema_registry_client import CachedSchemaRegistryClient  # noqa
-from confluent_kafka.avro.serializer.message_serializer import MessageSerializer  # noqa
 
 from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_stats_cb, get_callback)
+    default_error_cb, default_stats_cb, get_callback
+)
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
+from confluent_kafka_helpers.mocks.consumer import MockAvroConsumer
 
 logger = structlog.get_logger(__name__)
 
@@ -31,7 +31,11 @@ class AvroConsumer:
         'statistics.interval.ms': 15000
     }
 
-    def __init__(self, config):
+    def __init__(
+        self, config,
+        avro_consumer: ConfluentAvroConsumer = ConfluentAvroConsumer,
+        mock_avro_consumer: MockAvroConsumer = MockAvroConsumer
+    ) -> None:
         self.non_blocking = config.pop('non_blocking', False)
         self.stop_on_eof = config.pop('stop_on_eof', False)
         self.poll_timeout = config.pop('poll_timeout', 0.1)
@@ -45,8 +49,15 @@ class AvroConsumer:
         )
         self.topics = self._get_topics(self.config)
 
-        logger.info("Initializing consumer", config=self.config)
-        self.consumer = ConfluentAvroConsumer(self.config)
+        bootstrap_servers = self.config['bootstrap.servers'].split(',')
+        mock_enabled = bootstrap_servers[0].startswith('mock://')
+        consumer_cls = mock_avro_consumer if mock_enabled else avro_consumer
+
+        logger.info(
+            "Initializing consumer", config=self.config,
+            mock_enabled=mock_enabled
+        )
+        self.consumer = consumer_cls(self.config)
         self.consumer.subscribe(self.topics)
 
     def __getattr__(self, name):
@@ -120,6 +131,7 @@ class AvroLazyConsumer(ConfluentAvroConsumer):
     We use this approach, because we want to check the key messages before
     decoding the message, this will avoid performance issues.
     """
+
     def poll(self, timeout=None):
         if timeout is None:
             timeout = -1
