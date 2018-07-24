@@ -5,9 +5,12 @@ import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 
 from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback)
+    default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback
+)
+from confluent_kafka_helpers.mocks.producer import MockAvroProducer
 from confluent_kafka_helpers.schema_registry import (
-    AvroSchemaRegistry, SchemaNotFound)
+    AvroSchemaRegistry, SchemaNotFound
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -20,7 +23,7 @@ class TopicNotRegistered(Exception):
     pass
 
 
-class AvroProducer(ConfluentAvroProducer):
+class AvroProducer:
 
     DEFAULT_CONFIG = {
         'acks': 'all',
@@ -32,9 +35,13 @@ class AvroProducer(ConfluentAvroProducer):
         'statistics.interval.ms': 15000,
     }
 
-    def __init__(self, config, value_serializer=None,
-                 schema_registry=AvroSchemaRegistry,
-                 get_callback=get_callback):  # yapf: disable
+    def __init__(
+        self, config,
+        avro_producer: ConfluentAvroProducer = ConfluentAvroProducer,
+        mock_avro_producer: MockAvroProducer = MockAvroProducer,
+        value_serializer=None, schema_registry=AvroSchemaRegistry,
+        get_callback=get_callback
+    ) -> None:
         config = {**self.DEFAULT_CONFIG, **config}
         config['on_delivery'] = get_callback(
             config.pop('on_delivery', None), default_on_delivery_cb
@@ -57,14 +64,20 @@ class AvroProducer(ConfluentAvroProducer):
         default_topic_schema = next(iter(self.topic_schemas.values()))
         self.default_topic, *_ = default_topic_schema
 
-        logger.info("Initializing producer", config=config)
         atexit.register(self._close)
 
-        super().__init__(config)
+        bootstrap_servers = config['bootstrap.servers'].split(',')
+        mock_enabled = bootstrap_servers[0].startswith('mock://')
+        producer_cls = mock_avro_producer if mock_enabled else avro_producer
+
+        logger.info(
+            "Initializing producer", config=config, mock_enabled=mock_enabled
+        )
+        self.producer = producer_cls(config)
 
     def _close(self):
         logger.info("Flushing producer")
-        super().flush()
+        self.producer.flush()
 
     def _get_subject_names(self, topic):
         """
@@ -105,7 +118,7 @@ class AvroProducer(ConfluentAvroProducer):
             value = self.value_serializer(value)
 
         logger.info("Producing message", topic=topic, key=key, value=value)
-        super().produce(
+        self.producer.produce(
             topic=topic, key=key, value=value, key_schema=key_schema,
             value_schema=value_schema, **kwargs
         )
