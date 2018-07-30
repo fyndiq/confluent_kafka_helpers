@@ -7,6 +7,7 @@ from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback
 )
+from confluent_kafka_helpers.config import get_bootstrap_servers
 from confluent_kafka_helpers.mocks.producer import MockAvroProducer
 from confluent_kafka_helpers.schema_registry import (
     AvroSchemaRegistry, SchemaNotFound
@@ -66,12 +67,11 @@ class AvroProducer:
 
         atexit.register(self._close)
 
-        bootstrap_servers = config['bootstrap.servers'].split(',')
-        mock_enabled = bootstrap_servers[0].startswith('mock://')
-        producer_cls = mock_avro_producer if mock_enabled else avro_producer
+        bootstrap_servers, enable_mock = get_bootstrap_servers(config)
+        producer_cls = mock_avro_producer if enable_mock else avro_producer
 
         logger.info(
-            "Initializing producer", config=config, mock_enabled=mock_enabled
+            "Initializing producer", config=config, enable_mock=enable_mock
         )
         self.producer = producer_cls(config)
 

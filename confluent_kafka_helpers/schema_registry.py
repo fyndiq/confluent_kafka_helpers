@@ -7,6 +7,11 @@ from confluent_kafka.avro.cached_schema_registry_client import (
 )
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 
+from confluent_kafka_helpers.mocks.message_serializer import (
+    MockMessageSerializer
+)
+from confluent_kafka_helpers.mocks.schema_registry import MockSchemaRegistry
+
 logger = structlog.get_logger(__name__)
 
 
@@ -15,11 +20,19 @@ class SchemaNotFound(Exception):
 
 
 class AvroSchemaRegistry:
+    def __init__(
+        self, schema_registry_url,
+        client: CachedSchemaRegistryClient = CachedSchemaRegistryClient,
+        mock_client: MockSchemaRegistry = MockSchemaRegistry,
+        serializer: MessageSerializer = MessageSerializer,
+        mock_serializer: MockMessageSerializer = MockMessageSerializer
+    ) -> None:
+        enable_mock = schema_registry_url.startswith('mock://')
+        client_cls = mock_client if enable_mock else client
+        serializer_cls = mock_serializer if enable_mock else serializer
 
-    def __init__(self, schema_registry_url, client=CachedSchemaRegistryClient,
-                 serializer=MessageSerializer):  # yapf: disable
-        self.client = client(url=schema_registry_url)
-        self.serializer = serializer(self.client)
+        self.client = client_cls(url=schema_registry_url)
+        self.serializer = serializer_cls(self.client)
 
     def get_latest_schema(self, subject):
         schema_id, schema, version = self.client.get_latest_schema(subject)
