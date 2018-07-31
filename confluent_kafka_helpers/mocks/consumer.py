@@ -1,8 +1,9 @@
-from collections import deque
+from collections import defaultdict, deque
 from typing import NamedTuple
 
 from confluent_kafka_helpers.mocks.kafka import Broker
 from confluent_kafka_helpers.mocks.message import Message
+from confluent_kafka_helpers.mocks.producer import MockProducer
 
 
 class KafkaError:
@@ -26,15 +27,55 @@ def roundrobin(*iterables):
             iterators.popleft()
 
 
+class OffsetManager:
+    topic = '__consumer_offsets'
+
+    def __init__(self, group_id, producer: MockProducer = MockProducer):
+        self._producer = producer({})
+        self._group_id = group_id
+
+    def commit(self, message):
+        key = f'{self._group_id}{message.topic()}{message.partition()}'
+        self._producer.produce(topic=self.topic, key=key, value=None)
+
+    def get_fetch_positions(self):
+        pass
+
+
+class SubscribedTopicPartitions(defaultdict):
+    def __init__(self):
+        super().__init__(list)
+
+    def assign(self, topics_partitions):
+        for topic_partition in topics_partitions:
+            topic, partition = topic_partition.topic, topic_partition.partition
+            self[topic] = partition
+
+    def subscribe(self, topics):
+        for topic in topics:
+            self[topic]
+
+
 class MockConsumer:
-    def __init__(self, config, broker: Broker = Broker):
+    def __init__(
+        self, config, broker: Broker = Broker,
+        offset_manager: OffsetManager = OffsetManager,
+        subscribed: SubscribedTopicPartitions = SubscribedTopicPartitions
+    ):
         self._broker = broker()
+        self._offset_manager = offset_manager(config['group.id'])
+        self._subscribed = subscribed()
+        self._message = None
 
     def poll(self, *args, **kwargs):
+        self._offset_manager.get_fetch_positions()
+        # TODO: only return subscribed topic/partitions from last committed offset
         messages = self._broker.prefetch_messages()
         for topic, partition, partition_log in roundrobin(*messages):
             while partition_log:
-                return partition_log.popleft()
+                message = partition_log.popleft()
+                self._message = message
+                return message
             # else:
             #     import ipdb; ipdb.set_trace()
             #     return Message(
@@ -42,18 +83,19 @@ class MockConsumer:
             #         error_code=KafkaError._PARTITION_EOF
             #     )
 
+    def assign(self, topics_partitions):
+        self._subscribed.assign(topics_partitions)
+
     def subscribe(self, topics):
-        topics_partition = [TopicPartition(topic=topic) for topic in topics]
-        self._broker.consume_topics_partition(topics_partition)
+        # topics_partition = [TopicPartition(topic=topic) for topic in topics]
+        # self._broker.consume_topics_partition(topics_partition)
+        self._subscribed.subscribe(topics)
+
+    def commit(self, *args, **kwargs):
+        self._offset_manager.commit(self._message)
 
     def close(self):
         pass
-
-    def commit(self, *args, **kwargs):
-        pass
-
-    def assign(self, topics_partition):
-        self._broker.consume_topics_partition(topics_partition)
 
     def unassign(self):
         pass

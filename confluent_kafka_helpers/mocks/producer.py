@@ -8,7 +8,7 @@ def default_partitioner(key, num_partitions):
     return zlib.crc32(key.encode('utf-8')) % num_partitions
 
 
-class MockAvroProducer:
+class MockProducer:
     def __init__(self, config, broker: Broker = Broker):
         self._broker = broker()
 
@@ -20,4 +20,8 @@ class MockAvroProducer:
         message = Message(
             value=value, topic=topic, key=key, partition=partition
         )
-        self._broker.add_message(message)
+        return self._broker.add_message(message)
+
+
+class MockAvroProducer(MockProducer):
+    pass
