@@ -13,6 +13,7 @@ class KafkaError:
 class TopicPartition(NamedTuple):
     topic: str
     partition: int = None
+    offset: int = None
 
 
 def roundrobin(*iterables):
@@ -25,21 +26,6 @@ def roundrobin(*iterables):
                 iterators.rotate(-1)
         except StopIteration:
             iterators.popleft()
-
-
-class OffsetManager:
-    topic = '__consumer_offsets'
-
-    def __init__(self, group_id, producer: MockProducer = MockProducer):
-        self._producer = producer({})
-        self._group_id = group_id
-
-    def commit(self, message):
-        key = f'{self._group_id}{message.topic()}{message.partition()}'
-        self._producer.produce(topic=self.topic, key=key, value=None)
-
-    def get_fetch_positions(self):
-        pass
 
 
 class SubscribedTopicPartitions(defaultdict):
@@ -56,6 +42,26 @@ class SubscribedTopicPartitions(defaultdict):
             self[topic]
 
 
+class OffsetManager:
+    topic = '__consumer_offsets'
+
+    def __init__(
+        self, group_id, subscribed: SubscribedTopicPartitions,
+        producer: MockProducer = MockProducer
+    ):
+        self._producer = producer({})
+        self._group_id = group_id
+        self._subscribed = subscribed
+
+    def commit(self, message):
+        key = f'{self._group_id}{message.topic()}{message.partition()}'
+        self._producer.produce(topic=self.topic, key=key, value=None)
+
+    def update_offsets(self):
+        import ipdb; ipdb.set_trace()
+        pass
+
+
 class MockConsumer:
     def __init__(
         self, config, broker: Broker = Broker,
@@ -63,12 +69,14 @@ class MockConsumer:
         subscribed: SubscribedTopicPartitions = SubscribedTopicPartitions
     ):
         self._broker = broker()
-        self._offset_manager = offset_manager(config['group.id'])
         self._subscribed = subscribed()
+        self._offset_manager = offset_manager(
+            config['group.id'], subscribed=self._subscribed
+        )
         self._message = None
 
     def poll(self, *args, **kwargs):
-        self._offset_manager.get_fetch_positions()
+        self._offset_manager.update_offsets()
         # TODO: only return subscribed topic/partitions from last committed offset
         messages = self._broker.prefetch_messages()
         for topic, partition, partition_log in roundrobin(*messages):
