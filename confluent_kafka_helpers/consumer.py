@@ -49,6 +49,8 @@ class AvroConsumer:
         self.consumer = ConfluentAvroConsumer(self.config)
         self.consumer.subscribe(self.topics)
 
+        self._generator = self._message_generator()
+
     def __getattr__(self, name):
         return getattr(self.consumer, name)
 
@@ -57,7 +59,7 @@ class AvroConsumer:
 
     def __next__(self):
         try:
-            return next(self._message_generator())
+            return next(self._generator)
         except EndOfPartition:
             raise StopIteration
 

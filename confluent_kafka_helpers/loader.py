@@ -57,14 +57,15 @@ class MessageGenerator:
         self.consumer = consumer
         self.key = key
         self.key_filter = key_filter
-        self.messages = []
+        # self.messages = []
+        self._generator = self._message_generator()
 
     def __iter__(self):
         return self
 
     def __next__(self):
         try:
-            return next(self._message_generator())
+            return next(self._generator)
         except EndOfPartition:
             raise StopIteration
 
