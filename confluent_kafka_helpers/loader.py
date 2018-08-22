@@ -113,7 +113,7 @@ class MessageGenerator:
                 # if we identify that this is an actual problem we should
                 # probably remove the generator and return a de-duplicated
                 # list instead.
-                self.messages.append(message)
+                # self.messages.append(message)
 
                 yield message
 
