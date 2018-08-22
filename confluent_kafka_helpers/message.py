@@ -37,7 +37,7 @@ class Message:
         return self._raw == other._raw
 
     def __hash__(self):
-        return hash((str(self.value), self._meta.key, self._meta.timestamp))
+        return hash((str(self.value), self._meta.key, self._meta.offset))
 
     def __lt__(self, other):
         return hash(self) < hash(other)
