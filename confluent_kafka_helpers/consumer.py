@@ -3,11 +3,11 @@ import socket
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
-from confluent_kafka.avro.cached_schema_registry_client import CachedSchemaRegistryClient  # noqa
-from confluent_kafka.avro.serializer.message_serializer import MessageSerializer  # noqa
 
 from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_stats_cb, get_callback)
+    default_error_cb, default_stats_cb, get_callback
+)
+from confluent_kafka_helpers.exceptions import EndOfPartition
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 
@@ -56,7 +56,10 @@ class AvroConsumer:
         return self
 
     def __next__(self):
-        return next(self._message_generator())
+        try:
+            return next(self._message_generator())
+        except EndOfPartition:
+            raise StopIteration
 
     def __enter__(self):
         return self
@@ -85,7 +88,7 @@ class AvroConsumer:
                 error_code = message.error().code()
                 if error_code == KafkaError._PARTITION_EOF:
                     if self.stop_on_eof:
-                        raise StopIteration
+                        raise EndOfPartition
                     else:
                         continue
                 else:
@@ -120,6 +123,7 @@ class AvroLazyConsumer(ConfluentAvroConsumer):
     We use this approach, because we want to check the key messages before
     decoding the message, this will avoid performance issues.
     """
+
     def poll(self, timeout=None):
         if timeout is None:
             timeout = -1
