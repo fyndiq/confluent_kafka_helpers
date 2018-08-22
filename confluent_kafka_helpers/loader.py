@@ -74,7 +74,7 @@ class MessageGenerator:
 
     def __exit__(self, *args, **kwargs):
         self.consumer.unassign()
-        find_duplicated_messages(self.messages)
+        # find_duplicated_messages(self.messages)
 
     def _message_generator(self):
         while True:
