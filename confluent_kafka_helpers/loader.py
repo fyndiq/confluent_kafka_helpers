@@ -4,18 +4,18 @@ import uuid
 import zlib
 from collections import defaultdict
 from functools import partial
+from typing import Callable
 
 import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 
-from confluent_kafka_helpers.consumer import AvroLazyConsumer
+from confluent_kafka_helpers.consumer import AvroLazyConsumer, get_message
 from confluent_kafka_helpers.exceptions import (
     EndOfPartition, KafkaTransportError
 )
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
-from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -70,14 +70,19 @@ def default_error_handler(kafka_error):
 
 class MessageGenerator:
     def __init__(
-        self, consumer, key, key_filter, error_handler=default_error_handler
+        self, consumer, key, key_filter,
+        error_handler: Callable = default_error_handler
     ):
         self.consumer = consumer
         self.key = key
         self.key_filter = key_filter
         # self.messages = []
         self._generator = self._message_generator()
-        self._error_handler = error_handler
+
+        self._get_message = partial(
+            get_message, consumer=consumer, error_handler=error_handler,
+            stop_on_eof=True
+        )
 
     def __iter__(self):
         return self
@@ -95,21 +100,10 @@ class MessageGenerator:
         self.consumer.unassign()
         # find_duplicated_messages(self.messages)
 
-    @retry_exception(exceptions=[KafkaTransportError])
-    def _get_message(self):
-        message = self.consumer.poll(timeout=0.1)
-        if message is None:
-            return None
-
-        if message.error():
-            self._error_handler(message.error())
-
-        return message
-
     def _message_generator(self):
         while True:
             message = self._get_message()
-            if not message:
+            if message is None:
                 continue
 
             if self.key_filter(self.key, message.key()):

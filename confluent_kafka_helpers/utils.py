@@ -1,5 +1,6 @@
 import time
 from functools import wraps
+
 import structlog
 
 logger = structlog.get_logger(__name__)

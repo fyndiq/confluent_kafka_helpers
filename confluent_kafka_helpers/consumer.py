@@ -1,4 +1,6 @@
 import socket
+from functools import partial
+from typing import Callable
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
@@ -7,11 +9,41 @@ from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_stats_cb, get_callback
 )
-from confluent_kafka_helpers.exceptions import EndOfPartition
+from confluent_kafka_helpers.exceptions import (
+    EndOfPartition, KafkaTransportError
+)
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
+from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
+
+
+@retry_exception(exceptions=[KafkaTransportError])
+def get_message(consumer, error_handler, timeout=0.1, stop_on_eof=False):
+    message = consumer.poll(timeout=timeout)
+    if message is None:
+        return None
+
+    if message.error():
+        try:
+            error_handler(message.error())
+        except EndOfPartition:
+            if stop_on_eof:
+                raise
+            else:
+                return None
+
+    return message
+
+
+def default_error_handler(kafka_error):
+    code = kafka_error.code()
+    if code == KafkaError._PARTITION_EOF:
+        raise EndOfPartition
+    else:
+        statsd.increment(f'{base_metric}.consumer.message.count.error')
+        raise KafkaException(kafka_error)
 
 
 class AvroConsumer:
@@ -31,10 +63,13 @@ class AvroConsumer:
         'statistics.interval.ms': 15000
     }
 
-    def __init__(self, config):
+    def __init__(
+        self, config, get_message: Callable = get_message,
+        error_handler: Callable = default_error_handler
+    ):
+        stop_on_eof = config.pop('stop_on_eof', False)
+        poll_timeout = config.pop('poll_timeout', 0.1)
         self.non_blocking = config.pop('non_blocking', False)
-        self.stop_on_eof = config.pop('stop_on_eof', False)
-        self.poll_timeout = config.pop('poll_timeout', 0.1)
 
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.config['error_cb'] = get_callback(
@@ -50,6 +85,11 @@ class AvroConsumer:
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()
+
+        self._get_message = partial(
+            get_message, consumer=self.consumer, error_handler=error_handler,
+            timeout=poll_timeout, stop_on_eof=stop_on_eof
+        )
 
     def __getattr__(self, name):
         return getattr(self.consumer, name)
@@ -79,26 +119,13 @@ class AvroConsumer:
 
     def _message_generator(self):
         while True:
-            message = self.consumer.poll(timeout=self.poll_timeout)
+            message = self._get_message()
             if message is None:
                 if self.non_blocking:
                     yield None
                 continue
 
             statsd.increment(f'{base_metric}.consumer.message.count.total')
-            if message.error():
-                error_code = message.error().code()
-                if error_code == KafkaError._PARTITION_EOF:
-                    if self.stop_on_eof:
-                        raise EndOfPartition
-                    else:
-                        continue
-                else:
-                    statsd.increment(
-                        f'{base_metric}.consumer.message.count.error'
-                    )
-                    raise KafkaException(message.error())
-
             yield Message(message)
 
     def _get_topics(self, config):
