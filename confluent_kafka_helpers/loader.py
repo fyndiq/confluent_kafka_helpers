@@ -9,10 +9,13 @@ import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 
 from confluent_kafka_helpers.consumer import AvroLazyConsumer
-from confluent_kafka_helpers.exceptions import EndOfPartition
+from confluent_kafka_helpers.exceptions import (
+    EndOfPartition, KafkaTransportError
+)
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
+from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
 
@@ -52,13 +55,29 @@ def find_duplicated_messages(messages, logger=logger):
             )
 
 
+def default_error_handler(kafka_error):
+    code = kafka_error.code()
+    if code == KafkaError._PARTITION_EOF:
+        logger.debug("Reached end of partition")
+        raise EndOfPartition
+    elif code == KafkaError._TRANSPORT:
+        statsd.increment(f'{base_metric}.loader.message.count.error')
+        raise KafkaTransportError(kafka_error)
+    else:
+        statsd.increment(f'{base_metric}.loader.message.count.error')
+        raise KafkaException(kafka_error)
+
+
 class MessageGenerator:
-    def __init__(self, consumer, key, key_filter):
+    def __init__(
+        self, consumer, key, key_filter, error_handler=default_error_handler
+    ):
         self.consumer = consumer
         self.key = key
         self.key_filter = key_filter
         # self.messages = []
         self._generator = self._message_generator()
+        self._error_handler = error_handler
 
     def __iter__(self):
         return self
@@ -76,24 +95,24 @@ class MessageGenerator:
         self.consumer.unassign()
         # find_duplicated_messages(self.messages)
 
+    @retry_exception(exceptions=[KafkaTransportError])
+    def _get_message(self):
+        message = self.consumer.poll(timeout=0.1)
+        if message is None:
+            return None
+
+        if message.error():
+            self._error_handler(message.error())
+
+        return message
+
     def _message_generator(self):
         while True:
-            message = self.consumer.poll(timeout=0.1)
-            if message is None:
+            message = self._get_message()
+            if not message:
                 continue
 
-            if message.error():
-                if message.error().code() == KafkaError._PARTITION_EOF:
-                    logger.debug("Reached end of partition")
-                    raise EndOfPartition
-                else:
-                    statsd.increment(
-                        f'{base_metric}.loader.message.count.error'
-                    )
-                    raise KafkaException(message.error())
-
             if self.key_filter(self.key, message.key()):
-                # Once we get the message we want, we can decode it
                 self.consumer.decode_message(message)
 
                 message = Message(message)
@@ -176,6 +195,7 @@ class AvroMessageLoader:
 
         Raises:
             KafkaException: Kafka errors.
+            KafkaTransportError: Kafka transport errors
 
         Returns:
             MessageGenerator: A generator that yields messages.
