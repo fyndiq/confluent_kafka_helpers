@@ -1,11 +1,5 @@
-import zlib
-
-from confluent_kafka_helpers.mocks.kafka import Broker
+from confluent_kafka_helpers.mocks.kafka import Broker, default_partitioner
 from confluent_kafka_helpers.mocks.message import Message
-
-
-def default_partitioner(key, num_partitions):
-    return zlib.crc32(key.encode('utf-8')) % num_partitions
 
 
 class MockProducer:
@@ -20,7 +14,7 @@ class MockProducer:
         message = Message(
             value=value, topic=topic, key=key, partition=partition
         )
-        return self._broker.add_message(message)
+        return self._broker.send_message(message)
 
 
 class MockAvroProducer(MockProducer):

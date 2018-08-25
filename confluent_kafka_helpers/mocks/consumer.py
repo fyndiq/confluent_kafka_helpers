@@ -1,13 +1,12 @@
-from collections import defaultdict, deque
+from collections import deque
 from typing import NamedTuple
 
-from confluent_kafka_helpers.mocks.kafka import Broker
+import structlog
+
+from confluent_kafka_helpers.mocks.kafka import Broker, KafkaError
 from confluent_kafka_helpers.mocks.message import Message
-from confluent_kafka_helpers.mocks.producer import MockProducer
 
-
-class KafkaError:
-    _PARTITION_EOF = -191
+logger = structlog.get_logger(__name__)
 
 
 class TopicPartition(NamedTuple):
@@ -16,91 +15,57 @@ class TopicPartition(NamedTuple):
     offset: int = None
 
 
-def roundrobin(*iterables):
-    "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
-    iterators = deque(map(iter, iterables))
-    while iterators:
-        try:
-            while True:
-                yield next(iterators[0])
-                iterators.rotate(-1)
-        except StopIteration:
-            iterators.popleft()
-
-
-class SubscribedTopicPartitions(defaultdict):
-    def __init__(self):
-        super().__init__(list)
-
-    def assign(self, topics_partitions):
-        for topic_partition in topics_partitions:
-            topic, partition = topic_partition.topic, topic_partition.partition
-            self[topic] = partition
-
-    def subscribe(self, topics):
-        for topic in topics:
-            self[topic]
-
-
-class OffsetManager:
-    topic = '__consumer_offsets'
-
-    def __init__(
-        self, group_id, subscribed: SubscribedTopicPartitions,
-        producer: MockProducer = MockProducer
-    ):
-        self._producer = producer({})
-        self._group_id = group_id
-        self._subscribed = subscribed
-
-    def commit(self, message):
-        key = f'{self._group_id}{message.topic()}{message.partition()}'
-        self._producer.produce(topic=self.topic, key=key, value=None)
-
-    def update_offsets(self):
-        import ipdb; ipdb.set_trace()
-        pass
-
-
 class MockConsumer:
-    def __init__(
-        self, config, broker: Broker = Broker,
-        offset_manager: OffsetManager = OffsetManager,
-        subscribed: SubscribedTopicPartitions = SubscribedTopicPartitions
-    ):
+    def __init__(self, config, broker: Broker = Broker):
+        self._config = config
         self._broker = broker()
-        self._subscribed = subscribed()
-        self._offset_manager = offset_manager(
-            config['group.id'], subscribed=self._subscribed
-        )
         self._message = None
+        self._group_id = config.get('group.id')
+        self._prefetched_messages = None
+
+    def _poll(self):
+        if not self._prefetched_messages:
+            logger.debug("Prefetching messages")
+            messages = self._broker.poll()
+            self._prefetched_messages = messages
+        else:
+            logger.debug("Using prefetched messages")
+            messages = self._prefetched_messages
+        return messages
 
     def poll(self, *args, **kwargs):
-        self._offset_manager.update_offsets()
-        # TODO: only return subscribed topic/partitions from last committed offset
-        messages = self._broker.prefetch_messages()
-        for topic, partition, partition_log in roundrobin(*messages):
-            while partition_log:
-                message = partition_log.popleft()
-                self._message = message
-                return message
-            # else:
-            #     import ipdb; ipdb.set_trace()
-            #     return Message(
-            #         value=None, topic=topic, partition=partition,
-            #         error_code=KafkaError._PARTITION_EOF
-            #     )
+        # self._offset_manager.update_offsets()
+        # TODO: don't fetch messages from broker every time, save batch locally until all messsages are processed
+        # TODO: only return non-committed messages on next _poll
+        # TODO: don't use deque, use a flat list of messages and filter committed messages in broker
+        messages_batch = self._poll()
+
+        for topic in messages_batch:
+            for partition in topic:
+                messages = partition.messages
+                while messages:
+                    return messages.popleft()
+                else:
+                    logger.debug(
+                        f"Reached EOF {partition.topic}.{partition.partition}"
+                    )
+                    del topic[0]
+                    return Message(
+                        value=None, topic=partition.topic,
+                        partition=partition.partition,
+                        error_code=KafkaError._PARTITION_EOF
+                    )
+        else:
+            logger.debug("No more messages in this batch")
 
     def assign(self, topics_partitions):
-        self._subscribed.assign(topics_partitions)
+        self._broker.assign(self._group_id, topics_partitions)
 
     def subscribe(self, topics):
-        # topics_partition = [TopicPartition(topic=topic) for topic in topics]
-        # self._broker.consume_topics_partition(topics_partition)
-        self._subscribed.subscribe(topics)
+        self._broker.subscribe(self._group_id, topics)
 
     def commit(self, *args, **kwargs):
-        self._offset_manager.commit(self._message)
+        self._broker.commit(self._group_id, self._message)
 
     def close(self):
         pass
