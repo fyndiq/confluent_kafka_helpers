@@ -1,8 +1,6 @@
 codecov
-confluent-kafka==0.11.4
-fastavro==0.18.0
-avro-python3==1.8.2
 flake8
+flake8-isort
 ipdb
 mypy
 pytest
@@ -10,3 +8,7 @@ pytest-coverage
 pytest-mock
 pytest-sugar
 structlog
+
+confluent-kafka>=0.11.4
+fastavro>=0.18.0
+avro-python3>=1.8.2
