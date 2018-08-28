@@ -1,4 +1,5 @@
 import atexit
+from enum import Enum
 import socket
 
 import structlog
@@ -10,6 +11,12 @@ from confluent_kafka_helpers.schema_registry import (
     AvroSchemaRegistry, SchemaNotFound)
 
 logger = structlog.get_logger(__name__)
+
+
+class SubjectNameStrategy(Enum):
+    TopicNameStrategy = 0
+    RecordNameStrategy = 1
+    TopicRecordNameStrategy = 2
 
 
 class TopicNotRegistered(Exception):
@@ -30,6 +37,9 @@ class AvroProducer(ConfluentAvroProducer):
         'max.in.flight': 1,
         'queue.buffering.max.ms': 100,
         'statistics.interval.ms': 15000,
+        'auto.register.schemas': False,
+        'key.subject.name.strategy': SubjectNameStrategy.TopicNameStrategy,
+        'value.subject.name.strategy': SubjectNameStrategy.TopicNameStrategy
     }
 
     def __init__(self, config, value_serializer=None,
@@ -49,6 +59,14 @@ class AvroProducer(ConfluentAvroProducer):
         schema_registry_url = config['schema.registry.url']
         self.schema_registry = schema_registry(schema_registry_url)
         self.value_serializer = config.pop('value_serializer', value_serializer)
+
+        self.auto_register_schemas = config.pop('auto.register.schemas')
+        self.key_subject_name_strategy = config.pop(
+            'key.subject.name.strategy'
+        )
+        self.value_subject_name_strategy = config.pop(
+            'value.subject.name.strategy'
+        )
 
         topics = config.pop('topics')
         self.topic_schemas = self._get_topic_schemas(topics)
