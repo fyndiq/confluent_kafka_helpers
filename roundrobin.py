@@ -1,48 +1,89 @@
-from collections import deque, defaultdict
+from collections import defaultdict, deque
+from itertools import chain
+from typing import List, NamedTuple
 
 
-def roundrobin(*iterables):
-    "roundrobin('ABC', 'D', 'EF') --> A D E B F C"
-    iterators = deque(map(iter, iterables))
-    while iterators:
-        try:
-            while True:
-                yield next(iterators[0])
-                iterators.rotate(-1)
-        except StopIteration:
-            # Remove an exhausted iterator.
-            iterators.popleft()
+class Partition(NamedTuple):
+    topic: str
+    partition: int
+    messages: List
 
 
-log = defaultdict(lambda: defaultdict(deque))
-log['foo'][0] = ('foo', 0, deque(['a', 'b']))
-log['foo'][1] = ('foo', 1, deque(['c', 'd']))
-log['foo'][2] = ('foo', 2, deque(['e', 'f']))
-# log['bar'][3] = ('bar', 0, deque(['g', 'h']))
-# log['bar'][4] = ('bar', 1, deque(['i', 'j']))
-# log['bar'][5] = ('bar', 2, deque(['k', 'l']))
+class Topic(list):
+    def append(self, topic, partition, messages):
+        partition = Partition(topic, partition, messages)
+        super().append(partition)
 
-# log['foo'][0] = ('foo', 0, deque())
-# log['foo'][1] = ('foo', 1, deque())
-# log['foo'][2] = ('foo', 2, deque())
+    # def __bool__(self):
+    #     return any([p.messages for p in self])
 
-flat = [list(topic[1].values()) for topic in log.items()]
+    def __repr__(self):
+        return f'Topic({list(self)})'
 
+
+class MessageBatch(list):
+    def __repr__(self):
+        return f'MessageBatch({list(self)})'
+
+    # def __bool__(self):
+    #     return any(self)
+
+
+def check_eof(topic_partition_eof_map):
+    partitions_eof = chain(
+        *[
+            list(partitions.values())
+            for topic, partitions in topic_partition_eof_map.items()
+        ]
+    )
+    return all(partitions_eof)
+
+
+message_batch = MessageBatch(
+    [
+        Topic(
+            [
+                Partition(topic='test.test.commands', partition=0, messages=deque(['a', 'b'])),
+                Partition(topic='test.test.commands', partition=1, messages=deque(['c'])),
+                # Partition(topic='test.test.commands', partition=2, messages=deque(['d'])),
+                # Partition(topic='test.test.commands', partition=3, messages=deque(['e', 'f']))
+            ]
+        ),
+        Topic(
+            [
+                Partition(topic='test.test.events', partition=0, messages=deque(['g', 'h'])),
+                # Partition(topic='test.test.events', partition=1, messages=deque(['i'])),
+                # Partition(topic='test.test.events', partition=2, messages=deque(['j'])),
+                # Partition(topic='test.test.events', partition=3, messages=deque(['k', 'l']))
+            ]
+        )
+    ]
+)
 
 def poll():
-    for topic, partition, value in roundrobin(*flat):
-        while value:
-            print(value.popleft())
-            return True
-        else:
-            print(f"EOF {partition}")
-            return False
+    for topic in message_batch:
+        for partition in topic:
+            messages = partition.messages
+            while messages:
+                return partition.topic, partition.partition, messages.popleft()
+            else:
+                print(f"EOF {partition.topic}.{partition.partition}")
+                del topic[0]
+                return partition.topic, partition.partition, None
+    else:
+        print("No more messages in this batch")
 
+eof = defaultdict(dict)
+eof['test.test.commands'][0] = False
+eof['test.test.commands'][1] = False
+eof['test.test.events'][0] = False
 
-eof = []
 while True:
-    message = poll()
+    topic, partition, message = poll()
     if not message:
-        eof.append(True)
-        if len(eof) == 3:
-            break
+        eof[topic][partition] = True
+        is_eof = check_eof(eof)
+        if is_eof:
+            raise StopIteration
+    else:
+        print(message)

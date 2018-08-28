@@ -11,6 +11,7 @@ from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_stats_cb, get_callback
 )
 from confluent_kafka_helpers.config import get_bootstrap_servers
+from confluent_kafka_helpers.exceptions import EndOfPartition
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.mocks.consumer import (
@@ -90,7 +91,10 @@ class AvroConsumer:
         return self
 
     def __next__(self):
-        return next(self._message_generator())
+        try:
+            return next(self._message_generator())
+        except EndOfPartition:
+            raise StopIteration
 
     def __enter__(self):
         return self
@@ -124,7 +128,7 @@ class AvroConsumer:
                         ] = True
                         eof = check_eof(self.topic_partition_eof_map)
                         if eof:
-                            raise StopIteration
+                            raise EndOfPartition
                     continue
                 else:
                     statsd.increment(

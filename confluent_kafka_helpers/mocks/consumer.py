@@ -44,7 +44,9 @@ class MockConsumer:
             for partition in topic:
                 messages = partition.messages
                 while messages:
-                    return messages.popleft()
+                    message = messages.popleft()
+                    self._message = message
+                    return message
                 else:
                     logger.debug(
                         f"Reached EOF {partition.topic}.{partition.partition}"

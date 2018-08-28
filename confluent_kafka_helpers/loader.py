@@ -9,6 +9,7 @@ import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 
 from confluent_kafka_helpers.consumer import AvroLazyConsumer
+from confluent_kafka_helpers.exceptions import EndOfPartition
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
@@ -62,7 +63,10 @@ class MessageGenerator:
         return self
 
     def __next__(self):
-        return next(self._message_generator())
+        try:
+            return next(self._message_generator())
+        except EndOfPartition:
+            raise StopIteration
 
     def __enter__(self):
         return self
@@ -80,7 +84,7 @@ class MessageGenerator:
             if message.error():
                 if message.error().code() == KafkaError._PARTITION_EOF:
                     logger.debug("Reached end of partition")
-                    raise StopIteration
+                    raise EndOfPartition
                 else:
                     statsd.increment(
                         f'{base_metric}.loader.message.count.error'

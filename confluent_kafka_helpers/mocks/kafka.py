@@ -102,10 +102,9 @@ class OffsetManager:
         self._log = log()
 
     def store_offset(self, group_id, message):
-        topic, partition = message.topic(), message.partition()
-        key = f'{group_id}{topic}{partition}'
+        key = f'{group_id}{message.topic()}{message.partition()}'
         partition = default_partitioner(key, DEFAULT_NUM_PARTITIONS)
-        self._log[topic][partition] = None
+        self._log[self.topic][partition] = None
 
     def update_offsets(self):
         pass
