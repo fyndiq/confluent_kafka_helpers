@@ -41,6 +41,8 @@ def default_error_handler(kafka_error):
     code = kafka_error.code()
     if code == KafkaError._PARTITION_EOF:
         raise EndOfPartition
+    elif code == KafkaError._NO_OFFSET:
+        logger.warning("Offset already stored")
     else:
         statsd.increment(f'{base_metric}.consumer.message.count.error')
         raise KafkaException(kafka_error)
