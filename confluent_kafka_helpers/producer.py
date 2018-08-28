@@ -112,12 +112,38 @@ class AvroProducer(ConfluentAvroProducer):
 
         return topic_schemas
 
-    def produce(self, value, key=None, topic=None, **kwargs):
+    def _get_subject(self, topic, schema, strategy):
+        if strategy == SubjectNameStrategy.TopicNameStrategy:
+            return topic
+        elif strategy == SubjectNameStrategy.RecordNameStrategy:
+            return schema.fullname
+        elif strategy == SubjectNameStrategy.TopicRecordNameStrategy:
+            return '%{}-%{}'.format(topic, schema.fullname)
+        else:
+            raise ValueError('Unknown SubjectNameStrategy')
+
+    def _ensure_schemas(self, topic, key_schema, value_schema):
+        key_subject = self._get_subject(
+            topic, key_schema, self.key_subject_name_strategy) + '-key'
+        value_subject = self._get_subject(
+            topic, value_schema, self.value_subject_name_strategy) + '-value'
+
+        if self.auto_register_schemas:
+            key_schema = self.schema_registry.register_schema(
+                key_subject, key_schema)
+            value_schema = self.schema_registry.register_schema(
+                value_subject, value_schema)
+        else:
+            key_schema = self.schema_registry.get_latest_schema(key_subject)
+            value_schema = self.schema_registry.get_latest_schema(value_subject)
+
+        return key_schema, value_schema
+
+    def produce(self, value, key=None, topic=None,
+                value_schema=None, key_schema=None, **kwargs):
         topic = topic or self.default_topic
-        try:
-            _, key_schema, value_schema = self.topic_schemas[topic]
-        except KeyError:
-            raise TopicNotRegistered(f"Topic {topic} is not registered")
+        key_schema, value_schema = self._ensure_schemas(
+                topic, key_schema, value_schema)
 
         if self.value_serializer:
             value = self.value_serializer(value)
