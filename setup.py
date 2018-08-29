@@ -10,7 +10,7 @@ setup(name="confluent-kafka-helpers",
       packages=find_packages(),
       install_requires=[
           'structlog>=17.2.0',
-          'confluent-kafka>=0.11.4',
+          'confluent-kafka>=0.11.5',
           'fastavro>=0.18.0',
           'avro-python3>=1.8.2'
       ],
