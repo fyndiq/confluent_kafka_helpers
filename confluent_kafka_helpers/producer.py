@@ -1,14 +1,13 @@
 import atexit
-from enum import Enum
 import socket
+from enum import Enum
 
 import structlog
 from confluent_kafka import Producer as ConfluentProducer
+from confluent_kafka.avro import CachedSchemaRegistryClient, MessageSerializer
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback)
-from confluent_kafka_helpers.schema_registry import (
-    AvroSchemaRegistry, SchemaNotFound)
 
 logger = structlog.get_logger(__name__)
 
@@ -28,6 +27,9 @@ class TopicNotRegistered(Exception):
 
 
 class Serializer:
+    def __init__(self, config, **kwargs):
+        pass
+
     def serialize(self, value, topic, **kwargs):
         return value
 
@@ -41,48 +43,44 @@ class AvroSerializer(Serializer):
 
     def __init__(self, config):
         config = {**self.DEFAULT_CONFIG, **config}
-
         schema_registry_url = config['schema.registry.url']
-        self.schema_registry = schema_registry(schema_registry_url)
-        self.auto_register_schemas = config.pop('auto.register.schemas')
-        self.key_subject_name_strategy = config.pop(
-            'key.subject.name.strategy'
-        )
-        self.value_subject_name_strategy = config.pop(
-            'value.subject.name.strategy'
-        )
+        self.schema_registry = CachedSchemaRegistryClient(schema_registry_url)
+        self.auto_register_schemas = config['auto.register.schemas']
+        self.key_subject_name_strategy = config['key.subject.name.strategy']
+        self.value_subject_name_strategy = config['value.subject.name.strategy']
+        self._serializer_impl = MessageSerializer(self.schema_registry)
 
-    def _get_subject(self, topic, schema, strategy):
+    def _get_subject(self, topic, schema, strategy, is_key=False):
+        subject = None
         if strategy == SubjectNameStrategy.TopicNameStrategy:
-            return topic
+            subject = topic
         elif strategy == SubjectNameStrategy.RecordNameStrategy:
-            return schema.fullname
+            subject = schema.fullname
         elif strategy == SubjectNameStrategy.TopicRecordNameStrategy:
-            return '%{}-%{}'.format(topic, schema.fullname)
+            subject = '%{}-%{}'.format(topic, schema.fullname)
         else:
             raise ValueError('Unknown SubjectNameStrategy')
 
-    def _ensure_schemas(self, topic, key_schema, value_schema):
-        key_subject = self._get_subject(
-            topic, key_schema, self.key_subject_name_strategy) + '-key'
-        value_subject = self._get_subject(
-            topic, value_schema, self.value_subject_name_strategy) + '-value'
+        subject += '-key' if is_key else '-value'
+        return subject
+
+    def _ensure_schema(self, topic, schema, is_key=False):
+        subject = self._get_subject(
+            topic, schema, self.key_subject_name_strategy, is_key)
 
         if self.auto_register_schemas:
-            key_schema = self.schema_registry.register_schema(
-                key_subject, key_schema)
-            value_schema = self.schema_registry.register_schema(
-                value_subject, value_schema)
+            schema_id = self.schema_registry.register(subject, schema)
+            schema = self.schema_registry.get_by_id(schema_id)
         else:
-            key_schema = self.schema_registry.get_latest_schema(key_subject)
-            value_schema = self.schema_registry.get_latest_schema(value_subject)
+            schema_id, schema, _ = self.schema_registry.get_latest_schema(
+                subject)
 
-        return key_schema, value_schema
+        return schema_id, schema
 
-    def serialize(self, value, **kwargs):
-        key_schema, value_schema = self._ensure_schemas(
-                topic, key_schema, value_schema)
-        return
+    def serialize(self, value, topic, is_key=False, **kwargs):
+        schema_id, _ = self._ensure_schema(topic, value._schema, is_key)
+        return self._serializer_impl.encode_record_with_schema_id(
+            schema_id, value, is_key)
 
 
 class Producer:
@@ -104,7 +102,7 @@ class Producer:
     }
 
     def __init__(self, config,
-                 value_serializer=Serializer(), key_serializer=Serializer(),
+                 value_serializer=Serializer, key_serializer=Serializer,
                  get_callback=get_callback):  # yapf: disable
         config = {**self.DEFAULT_CONFIG, **config}
         config['on_delivery'] = get_callback(
@@ -118,7 +116,9 @@ class Producer:
         )
 
         self.value_serializer = config.pop('value_serializer', value_serializer)
+        self.value_serializer = self.value_serializer(config)
         self.key_serializer = config.pop('key_serializer', key_serializer)
+        self.key_serializer = self.key_serializer(config)
 
         topics = config.pop('topics')
         # use the first topic as default

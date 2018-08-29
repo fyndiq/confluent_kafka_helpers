@@ -1,3 +1,6 @@
+from confluent_kafka_helpers.producer import AvroSerializer
+
+
 def to_message_from_dto(message):
     return message
 
@@ -25,4 +28,11 @@ class Config:
         'bootstrap.servers': 'localhost:29092',
         'schema.registry.url': 'localhost:8081',
         'topics': ['c', 'a'],
+    }
+
+    KAFKA_AVRO_PRODUCER_CONFIG = {
+        'bootstrap.servers': 'localhost:29092',
+        'schema.registry.url': 'localhost:8081',
+        'topics': ['c', 'a'],
+        'value_serializer': AvroSerializer
     }
