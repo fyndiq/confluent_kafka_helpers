@@ -24,12 +24,11 @@ def teardown_function(function):
 def generic_producer():
     producer_config = config.Config.KAFKA_REPOSITORY_PRODUCER_CONFIG
     return producer.Producer(
-        producer_config  #, schema_registry=mock_avro_schema_registry
+        producer_config
     )
 
 
 def test_producer_init(generic_producer):
-    producer_config = config.Config.KAFKA_REPOSITORY_PRODUCER_CONFIG
     assert generic_producer.default_topic == 'c'
     assert mock_confluent_producer_impl_init.call_count == 1
 
