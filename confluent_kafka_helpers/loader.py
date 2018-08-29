@@ -72,7 +72,7 @@ class MessageGenerator:
     def __init__(
         self, consumer, key, key_filter,
         error_handler: Callable = default_error_handler
-    ):
+    ) -> None:
         self.consumer = consumer
         self.key = key
         self.key_filter = key_filter
