@@ -50,19 +50,28 @@ def teardown_function(function):
 def avro_producer():
     producer_config = config.Config.KAFKA_AVRO_PRODUCER_CONFIG
     return producer.Producer(
-        producer_config  #, schema_registry=mock_avro_schema_registry
+        producer_config
     )
 
 
 def test_producer_init(avro_producer):
-    producer_config = config.Config.KAFKA_AVRO_PRODUCER_CONFIG
     assert avro_producer.default_topic == 'c'
     assert mock_confluent_producer_impl_init.call_count == 1
+    assert isinstance(avro_producer.value_serializer,
+                      config.Config.KAFKA_AVRO_PRODUCER_CONFIG['value_serializer'])
 
 
 @patch(
     'confluent_kafka_helpers.producer.Producer._produce',
     mock_avro_producer_produce
+)
+@patch(
+    'confluent_kafka.avro.CachedSchemaRegistryClient.get_latest_schema',
+    MagicMock(return_value=(1, message._schema, 1))
+)
+@patch(
+    'confluent_kafka.avro.CachedSchemaRegistryClient.get_by_id',
+    MagicMock(return_value=message._schema)
 )
 def test_avro_producer_produce_default_topic(avro_producer):
     key = 'a'
@@ -74,7 +83,7 @@ def test_avro_producer_produce_default_topic(avro_producer):
     assert topic == default_topic
     mock_avro_producer_produce.assert_called_once_with(
         topic=default_topic, key=key,
-        value=value
+        value=avro_producer.value_serializer.serialize(value, topic)
     )
 
 
@@ -82,14 +91,24 @@ def test_avro_producer_produce_default_topic(avro_producer):
     'confluent_kafka_helpers.producer.Producer._produce',
     mock_avro_producer_produce
 )
+@patch(
+    'confluent_kafka.avro.CachedSchemaRegistryClient.get_latest_schema',
+    MagicMock(return_value=(1, message._schema, 1))
+)
+@patch(
+    'confluent_kafka.avro.CachedSchemaRegistryClient.get_by_id',
+    MagicMock(return_value=message._schema)
+)
 def test_avro_producer_produce_specific_topic(avro_producer):
     key = 'a'
     value = message
-    topic = 'a'
+    topic = 'z'
     avro_producer.produce(key=key, value=value, topic=topic)
 
     mock_avro_producer_produce.assert_called_once_with(
-        topic=topic, key=key, value=value
+        topic=topic,
+        key=key,
+        value=avro_producer.value_serializer.serialize(value, topic)
     )
 
 #
