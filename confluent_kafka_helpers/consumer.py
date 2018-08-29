@@ -81,7 +81,7 @@ class AvroConsumer:
         self.topics = self._get_topics(self.config)
 
         logger.info("Initializing consumer", config=self.config)
-        self.consumer = ConfluentAvroConsumer(self.config, logger=logger)
+        self.consumer = ConfluentAvroConsumer(self.config)
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()
