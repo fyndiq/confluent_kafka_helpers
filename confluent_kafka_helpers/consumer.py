@@ -41,8 +41,6 @@ def default_error_handler(kafka_error):
     code = kafka_error.code()
     if code == KafkaError._PARTITION_EOF:
         raise EndOfPartition
-    elif code == KafkaError._NO_OFFSET:
-        logger.warning("Offset already stored")
     else:
         statsd.increment(f'{base_metric}.consumer.message.count.error')
         raise KafkaException(kafka_error)
@@ -83,7 +81,7 @@ class AvroConsumer:
         self.topics = self._get_topics(self.config)
 
         logger.info("Initializing consumer", config=self.config)
-        self.consumer = ConfluentAvroConsumer(self.config)
+        self.consumer = ConfluentAvroConsumer(self.config, logger=logger)
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()
