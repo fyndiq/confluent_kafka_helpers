@@ -1,4 +1,4 @@
-from confluent_kafka_helpers.producer import AvroSerializer, \
+from confluent_kafka_helpers.serialization import AvroSerializer, \
     AvroStringKeySerializer
 
 

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from confluent_kafka_helpers import producer
-from confluent_kafka_helpers.producer import AvroStringKeySerializer
+from confluent_kafka_helpers.serialization import AvroStringKeySerializer
 from tests import config
 
 mock_avro_schema_registry = MagicMock()
