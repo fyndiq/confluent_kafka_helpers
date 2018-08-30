@@ -49,7 +49,7 @@ class Producer:
         self.key_serializer = self.key_serializer(config)
 
         for config_key in self.value_serializer.config_keys() +\
-                          self.key_serializer.config_keys():
+                self.key_serializer.config_keys():
             config.pop(config_key, None)
 
         topics = config.pop('topics')
