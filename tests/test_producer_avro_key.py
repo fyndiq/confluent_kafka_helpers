@@ -33,7 +33,7 @@ def test_producer_init(avro_producer):
     assert mock_confluent_producer_impl_init.call_count == 1
     assert isinstance(
         avro_producer.key_serializer,
-        config.Config.KAFKA_AVRO_STRING_KEY_PRODUCER_CONFIG['key_serializer']
+        config.Config.KAFKA_AVRO_STRING_KEY_PRODUCER_CONFIG['key.serializer']
     )
 
 

@@ -35,12 +35,12 @@ class Config:
         'bootstrap.servers': 'localhost:29092',
         'schema.registry.url': 'localhost:8081',
         'topics': ['c', 'a'],
-        'value_serializer': AvroSerializer,
+        'value.serializer': AvroSerializer,
     }
 
     KAFKA_AVRO_STRING_KEY_PRODUCER_CONFIG = {
         'bootstrap.servers': 'localhost:29092',
         'schema.registry.url': 'localhost:8081',
         'topics': ['c', 'a'],
-        'key_serializer': AvroStringKeySerializer
+        'key.serializer': AvroStringKeySerializer
     }

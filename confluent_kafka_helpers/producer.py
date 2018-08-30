@@ -43,10 +43,14 @@ class Producer:
             config.pop('stats_cb', None), default_stats_cb
         )
 
-        self.value_serializer = config.pop('value_serializer', value_serializer)
+        self.value_serializer = config.pop('value.serializer', value_serializer)
         self.value_serializer = self.value_serializer(config)
-        self.key_serializer = config.pop('key_serializer', key_serializer)
+        self.key_serializer = config.pop('key.serializer', key_serializer)
         self.key_serializer = self.key_serializer(config)
+
+        for config_key in self.value_serializer.config_keys() +\
+                          self.key_serializer.config_keys():
+            config.pop(config_key, None)
 
         topics = config.pop('topics')
         # use the first topic as default
@@ -66,10 +70,16 @@ class Producer:
         self.flush()
 
     def flush(self, timeout=None):
-        self._producer_impl.flush(timeout)
+        if timeout:
+            self._producer_impl.flush(timeout)
+        else:
+            self._producer_impl.flush()
 
     def poll(self, timeout=None):
-        return self._producer_impl.poll(timeout)
+        if timeout:
+            return self._producer_impl.poll(timeout)
+        else:
+            return self._producer_impl.poll()
 
     def produce(self, value, key=None, topic=None):
         topic = topic or self.default_topic

@@ -19,11 +19,23 @@ class TopicNotRegistered(Exception):
 
 
 class Serializer:
+    """
+    Base class for all key and value serializers.
+    This default implementation returns the value intact.
+    """
     def __init__(self, config, **kwargs):
         pass
 
     def serialize(self, value, topic, **kwargs):
         return value
+
+    # Producer can instantiate multiple serializers (at least two),
+    # and config cleanup could not/should not be done from serializer __init__
+    # At the same time, config should be cleaned up before instantiating
+    # C producer implementation, otherwise it will throw something like
+    # cimpl.KafkaException: KafkaError{code=_INVALID_ARG,val=-186 ...
+    def config_keys(self) -> list:
+        return []
 
 
 class AvroSerializer(Serializer):
@@ -73,6 +85,9 @@ class AvroSerializer(Serializer):
         schema_id, _ = self._ensure_schema(topic, value._schema, is_key)
         return self._serializer_impl.encode_record_with_schema_id(
             schema_id, value, is_key)
+
+    def config_keys(self) -> list:
+        return list(self.DEFAULT_CONFIG.keys()) + ['schema.registry.url']
 
 
 class AvroStringKeySerializer(AvroSerializer):
