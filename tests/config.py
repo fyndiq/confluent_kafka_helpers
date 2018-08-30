@@ -1,4 +1,5 @@
-from confluent_kafka_helpers.producer import AvroSerializer
+from confluent_kafka_helpers.producer import AvroSerializer, \
+    AvroStringKeySerializer
 
 
 def to_message_from_dto(message):
@@ -34,5 +35,12 @@ class Config:
         'bootstrap.servers': 'localhost:29092',
         'schema.registry.url': 'localhost:8081',
         'topics': ['c', 'a'],
-        'value_serializer': AvroSerializer
+        'value_serializer': AvroSerializer,
+    }
+
+    KAFKA_AVRO_STRING_KEY_PRODUCER_CONFIG = {
+        'bootstrap.servers': 'localhost:29092',
+        'schema.registry.url': 'localhost:8081',
+        'topics': ['c', 'a'],
+        'key_serializer': AvroStringKeySerializer
     }

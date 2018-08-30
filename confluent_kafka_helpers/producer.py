@@ -3,7 +3,7 @@ import socket
 from enum import Enum
 
 import structlog
-from confluent_kafka import Producer as ConfluentProducer
+from confluent_kafka import Producer as ConfluentProducer, avro
 from confluent_kafka.avro import CachedSchemaRegistryClient, MessageSerializer
 
 from confluent_kafka_helpers.callbacks import (
@@ -41,7 +41,8 @@ class AvroSerializer(Serializer):
         'value.subject.name.strategy': SubjectNameStrategy.TopicNameStrategy
     }
 
-    def __init__(self, config):
+    def __init__(self, config, **kwargs):
+        super().__init__(config, **kwargs)
         config = {**self.DEFAULT_CONFIG, **config}
         schema_registry_url = config['schema.registry.url']
         self.schema_registry = CachedSchemaRegistryClient(schema_registry_url)
@@ -51,7 +52,6 @@ class AvroSerializer(Serializer):
         self._serializer_impl = MessageSerializer(self.schema_registry)
 
     def _get_subject(self, topic, schema, strategy, is_key=False):
-        subject = None
         if strategy == SubjectNameStrategy.TopicNameStrategy:
             subject = topic
         elif strategy == SubjectNameStrategy.RecordNameStrategy:
@@ -79,6 +79,21 @@ class AvroSerializer(Serializer):
 
     def serialize(self, value, topic, is_key=False, **kwargs):
         schema_id, _ = self._ensure_schema(topic, value._schema, is_key)
+        return self._serializer_impl.encode_record_with_schema_id(
+            schema_id, value, is_key)
+
+
+class AvroStringKeySerializer(AvroSerializer):
+    """
+    A specialized serializer for generic String keys,
+    serialized with a simple value avro schema.
+    """
+
+    KEY_SCHEMA = avro.loads("""{"type": "string"}""")
+
+    def serialize(self, value, topic, is_key=False, **kwargs):
+        schema = self.KEY_SCHEMA if is_key else value._schema
+        schema_id, _ = self._ensure_schema(topic, schema, is_key)
         return self._serializer_impl.encode_record_with_schema_id(
             schema_id, value, is_key)
 
