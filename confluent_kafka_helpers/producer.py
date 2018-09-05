@@ -85,8 +85,6 @@ class Producer:
         topic = topic or self.default_topic
         value = self.value_serializer.serialize(value, topic)
         key = self.key_serializer.serialize(key, topic, is_key=True)
-
-        logger.info("Producing message", topic=topic, key=key, value=value)
         self._produce(topic=topic, value=value, key=key)
 
     def _produce(self, topic, key, value, **kwargs):
