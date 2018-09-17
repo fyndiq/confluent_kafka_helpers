@@ -1,7 +1,8 @@
 from unittest.mock import MagicMock as Mock
 
 from confluent_kafka_helpers.metrics.callbacks import (
-    StatsCallbackMetrics, error_cb_metrics, on_delivery_cb_metrics)
+    StatsCallbackMetrics, error_cb_metrics, on_delivery_cb_metrics
+)
 
 
 class ErrorCallbackMetricsTests:
