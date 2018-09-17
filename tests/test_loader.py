@@ -5,6 +5,7 @@ import pytest
 from tests import config, conftest
 
 from confluent_kafka_helpers import loader
+from confluent_kafka_helpers.exceptions import EndOfPartition
 
 mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
     name='ConfluentAvroConsumerMock'
@@ -60,7 +61,7 @@ def test_avro_message_loader_load(avro_message_loader):
     # reset mock cause the messages has already been consumed at this point...
     message = conftest.PollReturnMock()
     conftest.mock_confluent_avro_consumer.poll.side_effect = [
-        message, StopIteration
+        message, EndOfPartition
     ]
     avro_message_loader.key_serializer = lambda arg: arg
 
