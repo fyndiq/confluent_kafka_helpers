@@ -3,9 +3,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
-from tests import config
-
 from confluent_kafka_helpers import consumer
+
+from tests import config
 
 number_of_messages = 1
 

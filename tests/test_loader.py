@@ -2,10 +2,10 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from tests import config, conftest
-
 from confluent_kafka_helpers import loader
 from confluent_kafka_helpers.exceptions import EndOfPartition
+
+from tests import config, conftest
 
 mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
     name='ConfluentAvroConsumerMock'
