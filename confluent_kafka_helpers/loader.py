@@ -76,7 +76,7 @@ class MessageGenerator:
         self.consumer = consumer
         self.key = key
         self.key_filter = key_filter
-        # self.messages = []
+        self.messages = []
         self._generator = self._message_generator()
 
         self._get_message = partial(
@@ -98,7 +98,7 @@ class MessageGenerator:
 
     def __exit__(self, *args, **kwargs):
         self.consumer.unassign()
-        # find_duplicated_messages(self.messages)
+        find_duplicated_messages(self.messages)
 
     def _message_generator(self):
         while True:
@@ -126,7 +126,7 @@ class MessageGenerator:
                 # if we identify that this is an actual problem we should
                 # probably remove the generator and return a de-duplicated
                 # list instead.
-                # self.messages.append(message)
+                self.messages.append(message)
 
                 yield message
 
