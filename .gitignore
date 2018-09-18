@@ -7,3 +7,5 @@ coverage.xml
 .cache/*
 .mypy_cache/
 .pytest_cache
+build/
+dist/
