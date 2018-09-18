@@ -24,8 +24,8 @@ jobs:
       - store_test_results:
           path: /tmp/test-results
       - run:
-          name: Running checks
-          command: make check
+          name: Running lint
+          command: make lint
 
 workflows:
   version: 2

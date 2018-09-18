@@ -1,7 +1,8 @@
 from unittest.mock import Mock
 
 from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback)
+    default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback
+)
 
 
 class GetCallBackTests:
