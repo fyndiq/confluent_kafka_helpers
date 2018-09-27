@@ -6,6 +6,6 @@ confluent_kafka_helpers.egg-info/*
 coverage.xml
 .cache/*
 .mypy_cache/
-.idea/
-.pytest_cache/
-
+.pytest_cache
+build/
+dist/

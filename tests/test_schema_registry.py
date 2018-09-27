@@ -1,8 +1,10 @@
-from tests import config
 from unittest.mock import MagicMock, patch
 
 import pytest
+
 from confluent_kafka_helpers import schema_registry
+
+from tests import config
 
 
 class CachedSchemaRegistryClientMock(MagicMock):

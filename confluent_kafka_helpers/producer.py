@@ -5,8 +5,12 @@ import structlog
 from confluent_kafka import Producer as ConfluentProducer
 
 from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback)
+    default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback
+)
 from confluent_kafka_helpers.serialization import Serializer
+from confluent_kafka_helpers.schema_registry import (
+    AvroSchemaRegistry, SchemaNotFound
+)
 
 logger = structlog.get_logger(__name__)
 

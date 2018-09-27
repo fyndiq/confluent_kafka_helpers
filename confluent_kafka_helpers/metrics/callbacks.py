@@ -2,7 +2,7 @@ from functools import partial
 
 import structlog
 
-from confluent_kafka_helpers.metrics import statsd, base_metric
+from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.metrics.stats import StatsParser
 
 logger = structlog.get_logger(__name__)
