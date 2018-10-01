@@ -60,8 +60,7 @@ class TestErrorHandler:
     @pytest.mark.parametrize('code', [
         (ConfluentKafkaError._ALL_BROKERS_DOWN),
         (ConfluentKafkaError._NO_OFFSET),
-        (ConfluentKafkaError._TIMED_OUT),
-        (ConfluentKafkaError._TRANSPORT)
+        (ConfluentKafkaError._TIMED_OUT)
     ])
     def test_raises_kafkaexception_on_other_errors(self, code):
         error = KafkaError(_code=code)
