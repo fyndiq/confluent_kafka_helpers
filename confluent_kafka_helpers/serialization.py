@@ -70,7 +70,7 @@ class AvroSerializer(Serializer):
 
     def _ensure_schema(self, topic, schema, is_key=False):
         subject = self._get_subject(
-            topic, schema, self.key_subject_name_strategy, is_key)
+            topic, schema, self.key_subject_name_strategy if is_key else self.value_subject_name_strategy, is_key)
 
         if self.auto_register_schemas:
             schema_id = self.schema_registry.register(subject, schema)
