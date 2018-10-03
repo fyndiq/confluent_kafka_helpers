@@ -41,6 +41,9 @@ def default_error_handler(kafka_error):
     code = kafka_error.code()
     if code == KafkaError._PARTITION_EOF:
         raise EndOfPartition
+    elif code == KafkaError._TRANSPORT:
+        statsd.increment(f'{base_metric}.consumer.message.count.error')
+        raise KafkaTransportError(kafka_error)
     else:
         statsd.increment(f'{base_metric}.consumer.message.count.error')
         raise KafkaException(kafka_error)
