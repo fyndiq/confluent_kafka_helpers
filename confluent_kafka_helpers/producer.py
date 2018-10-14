@@ -2,11 +2,12 @@ import atexit
 import socket
 
 import structlog
-from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
+from confluent_kafka import Producer as ConfluentProducer
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback
 )
+from confluent_kafka_helpers.serialization import Serializer
 from confluent_kafka_helpers.schema_registry import (
     AvroSchemaRegistry, SchemaNotFound
 )
@@ -14,15 +15,13 @@ from confluent_kafka_helpers.schema_registry import (
 logger = structlog.get_logger(__name__)
 
 
-class TopicNotRegistered(Exception):
+class Producer:
     """
-    Raised when someone tries to produce with a topic that
-    hasn't been registered in the 'topics' configuration.
+    Kafka producer with configurable key/value serializers.
+
+    Does not subclass directly from Confluent's Producer,
+    since it's a cimpl and therefore not mockable.
     """
-    pass
-
-
-class AvroProducer(ConfluentAvroProducer):
 
     DEFAULT_CONFIG = {
         'acks': 'all',
@@ -34,8 +33,8 @@ class AvroProducer(ConfluentAvroProducer):
         'statistics.interval.ms': 15000,
     }
 
-    def __init__(self, config, value_serializer=None,
-                 schema_registry=AvroSchemaRegistry,
+    def __init__(self, config,
+                 value_serializer=Serializer, key_serializer=Serializer,
                  get_callback=get_callback):  # yapf: disable
         config = {**self.DEFAULT_CONFIG, **config}
         config['on_delivery'] = get_callback(
@@ -48,66 +47,49 @@ class AvroProducer(ConfluentAvroProducer):
             config.pop('stats_cb', None), default_stats_cb
         )
 
-        schema_registry_url = config['schema.registry.url']
-        self.schema_registry = schema_registry(schema_registry_url)
-        self.value_serializer = config.pop('value_serializer', value_serializer)
+        self.value_serializer = config.pop('value.serializer', value_serializer)
+        self.value_serializer = self.value_serializer(config)
+        self.key_serializer = config.pop('key.serializer', key_serializer)
+        self.key_serializer = self.key_serializer(config)
+
+        for config_key in self.value_serializer.config_keys() +\
+                self.key_serializer.config_keys():
+            config.pop(config_key, None)
 
         topics = config.pop('topics')
-        self.topic_schemas = self._get_topic_schemas(topics)
-
         # use the first topic as default
-        default_topic_schema = next(iter(self.topic_schemas.values()))
-        self.default_topic, *_ = default_topic_schema
+        self.default_topic = next(iter(topics))
 
         logger.info("Initializing producer", config=config)
         atexit.register(self._close)
 
-        super().__init__(config)
+        self._producer_impl = self._init_producer_impl(config)
+
+    @staticmethod
+    def _init_producer_impl(config):
+        return ConfluentProducer(config)
 
     def _close(self):
         logger.info("Flushing producer")
-        super().flush()
+        self.flush()
 
-    def _get_subject_names(self, topic):
-        """
-        Get subject names for given topic.
-        """
-        key_subject_name = f'{topic}-key'
-        value_subject_name = f'{topic}-value'
-        return key_subject_name, value_subject_name
+    def flush(self, timeout=None):
+        if timeout:
+            self._producer_impl.flush(timeout)
+        else:
+            self._producer_impl.flush()
 
-    def _get_topic_schemas(self, topics):
-        """
-        Get schemas for all topics.
-        """
-        topic_schemas = {}
-        for topic in topics:
-            key_name, value_name = self._get_subject_names(topic)
-            try:
-                key_schema = self.schema_registry.get_latest_schema(key_name)
-            except SchemaNotFound:
-                # topics that are used for only pub/sub will probably not
-                # have a key set on the messages.
-                #
-                # on these topics we should not require a key schema.
-                key_schema = None
-            value_schema = self.schema_registry.get_latest_schema(value_name)
-            topic_schemas[topic] = (topic, key_schema, value_schema)
+    def poll(self, timeout=None):
+        if timeout:
+            return self._producer_impl.poll(timeout)
+        else:
+            return self._producer_impl.poll()
 
-        return topic_schemas
-
-    def produce(self, value, key=None, topic=None, **kwargs):
+    def produce(self, value, key=None, topic=None):
         topic = topic or self.default_topic
-        try:
-            _, key_schema, value_schema = self.topic_schemas[topic]
-        except KeyError:
-            raise TopicNotRegistered(f"Topic {topic} is not registered")
+        value = self.value_serializer.serialize(value, topic)
+        key = self.key_serializer.serialize(key, topic, is_key=True)
+        self._produce(topic=topic, value=value, key=key)
 
-        if self.value_serializer:
-            value = self.value_serializer(value)
-
-        logger.info("Producing message", topic=topic, key=key, value=value)
-        super().produce(
-            topic=topic, key=key, value=value, key_schema=key_schema,
-            value_schema=value_schema, **kwargs
-        )
+    def _produce(self, topic, key, value, **kwargs):
+        self._producer_impl.produce(topic=topic, value=value, key=key, **kwargs)

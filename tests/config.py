@@ -1,3 +1,7 @@
+from confluent_kafka_helpers.serialization import AvroSerializer, \
+    AvroStringKeySerializer
+
+
 def to_message_from_dto(message):
     return message
 
@@ -5,9 +9,9 @@ def to_message_from_dto(message):
 class Config:
 
     KAFKA_CONSUMER_CONFIG = {
-        'bootstrap.servers': 'localhost:9092',
+        'bootstrap.servers': 'localhost:29092',
         'group.id': 1,
-        'schema.registry.url': '1.1.1.1',
+        'schema.registry.url': 'localhost:8081',
         'topics': 'a'
     }
 
@@ -15,15 +19,28 @@ class Config:
         'topic': 'a',
         'num_partitions': 10,
         'consumer': {
-            'bootstrap.servers': 'localhost:9092',
+            'bootstrap.servers': 'localhost:29092',
             'group.id': 1,
-            'schema.registry.url': '1.1.1.1',
+            'schema.registry.url': 'localhost:8081',
         }
     }
 
     KAFKA_REPOSITORY_PRODUCER_CONFIG = {
-        'bootstrap.servers': 'localhost:9092',
-        'schema.registry.url': 'a',
+        'bootstrap.servers': 'localhost:29092',
+        'schema.registry.url': 'localhost:8081',
         'topics': ['c', 'a'],
-        'value_serializer': to_message_from_dto,
+    }
+
+    KAFKA_AVRO_PRODUCER_CONFIG = {
+        'bootstrap.servers': 'localhost:29092',
+        'schema.registry.url': 'localhost:8081',
+        'topics': ['c', 'a'],
+        'value.serializer': AvroSerializer,
+    }
+
+    KAFKA_AVRO_STRING_KEY_PRODUCER_CONFIG = {
+        'bootstrap.servers': 'localhost:29092',
+        'schema.registry.url': 'localhost:8081',
+        'topics': ['c', 'a'],
+        'key.serializer': AvroStringKeySerializer
     }
