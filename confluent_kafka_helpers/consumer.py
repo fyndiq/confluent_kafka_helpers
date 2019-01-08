@@ -64,7 +64,9 @@ class AvroConsumer:
         'log.connection.close': False,
         'log.thread.name': False,
         'session.timeout.ms': 6000,
-        'statistics.interval.ms': 15000
+        'statistics.interval.ms': 15000,
+        'queued.max.messages.kbytes': '10485',
+        'fetch.message.max.bytes': '10485',
     }
 
     def __init__(
