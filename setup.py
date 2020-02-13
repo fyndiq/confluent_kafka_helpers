@@ -12,7 +12,6 @@ setup(name="confluent-kafka-helpers",
           'structlog>=17.2.0',
           'confluent-kafka>=1.0.0',
           'fastavro>=0.18.0',
-          'avro-python3>=1.8.2',
-          'pycodestyle'
+          'avro-python3>=1.8.2,<1.9.2',
       ],
       zip_safe=False)
