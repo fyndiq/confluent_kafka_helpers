@@ -52,7 +52,6 @@ def default_error_handler(kafka_error):
 class AvroConsumer:
 
     DEFAULT_CONFIG = {
-        'api.version.request': True,
         'client.id': socket.gethostname(),
         'default.topic.config': {
             'auto.offset.reset': 'latest'
@@ -63,7 +62,6 @@ class AvroConsumer:
         'fetch.min.bytes': 1000,
         'log.connection.close': False,
         'log.thread.name': False,
-        'session.timeout.ms': 6000,
         'statistics.interval.ms': 15000,
         'queued.max.messages.kbytes': '10485',
         'fetch.message.max.bytes': '10485',
