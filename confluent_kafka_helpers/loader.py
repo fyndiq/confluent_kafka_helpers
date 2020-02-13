@@ -145,8 +145,8 @@ class AvroMessageLoader:
         'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
         'group.id': str(uuid.uuid4()),
-        'api.version.request': True,
-        'client.id': socket.gethostname()
+        'client.id': socket.gethostname(),
+        'enable.partition.eof': True,
     }
 
     def __init__(self, config):
