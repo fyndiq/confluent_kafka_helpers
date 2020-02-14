@@ -25,8 +25,6 @@ class TopicNotRegistered(Exception):
 class AvroProducer(ConfluentAvroProducer):
 
     DEFAULT_CONFIG = {
-        'acks': 'all',
-        'api.version.request': True,
         'client.id': socket.gethostname(),
         'log.connection.close': False,
         'max.in.flight': 1,
