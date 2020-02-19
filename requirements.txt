@@ -1,5 +1,6 @@
 codecov
 flake8
+flake8-eradicate
 flake8-isort
 ipdb
 mypy
@@ -10,6 +11,6 @@ pytest-mock
 pytest-sugar
 structlog
 
-avro-python3>=1.8.2,<1.9.2
+avro-python3>=1.8.2
 confluent-kafka>=1.0.0
 fastavro>=0.18.0
