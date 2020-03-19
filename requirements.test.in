@@ -1,0 +1,9 @@
+codecov
+flake8
+flake8-eradicate
+flake8-isort
+mypy
+pdbpp
+pytest
+pytest-coverage
+pytest-mock
