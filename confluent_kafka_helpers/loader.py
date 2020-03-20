@@ -10,12 +10,10 @@ import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 
 from confluent_kafka_helpers.consumer import AvroLazyConsumer, get_message
-from confluent_kafka_helpers.exceptions import (
-    EndOfPartition, KafkaTransportError
-)
+from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
-from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
+from confluent_kafka_helpers.schema_registry.client import SchemaRegistryClient
 
 logger = structlog.get_logger(__name__)
 
@@ -50,9 +48,7 @@ def find_duplicated_messages(messages, logger=logger):
 
     for message, pos in sorted(duplicates.items()):
         if len(pos) > 1:
-            logger.critical(
-                "Duplicated messages found", message=message, pos=pos
-            )
+            logger.critical("Duplicated messages found", message=message, pos=pos)
 
 
 def default_error_handler(kafka_error):
@@ -70,8 +66,7 @@ def default_error_handler(kafka_error):
 
 class MessageGenerator:
     def __init__(
-        self, consumer, key, key_filter,
-        error_handler: Callable = default_error_handler
+        self, consumer, key, key_filter, error_handler: Callable = default_error_handler
     ) -> None:
         self.consumer = consumer
         self.key = key
@@ -80,8 +75,7 @@ class MessageGenerator:
         self._generator = self._message_generator()
 
         self._get_message = partial(
-            get_message, consumer=consumer, error_handler=error_handler,
-            stop_on_eof=True
+            get_message, consumer=consumer, error_handler=error_handler, stop_on_eof=True
         )
 
     def __iter__(self):
@@ -154,12 +148,10 @@ class AvroMessageLoader:
         self.num_partitions = int(config['num_partitions'])
 
         default_key_subject_name = f'{self.topic}-key'
-        self.key_subject_name = config.get(
-            'key_subject_name', default_key_subject_name
-        )
+        self.key_subject_name = config.get('key_subject_name', default_key_subject_name)
 
         schema_registry_url = config['consumer']['schema.registry.url']
-        schema_registry = AvroSchemaRegistry(schema_registry_url)
+        schema_registry = SchemaRegistryClient(schema_registry_url)
         self.key_serializer = partial(
             schema_registry.key_serializer, self.key_subject_name, self.topic
         )

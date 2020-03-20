@@ -17,4 +17,9 @@ setup(
     packages=find_packages(),
     install_requires=get_requirements(),
     zip_safe=False,
+    entry_points={
+        "console_scripts": [
+            "schema-registry=confluent_kafka_helpers.bin.schema_registry.__main__:main"
+        ]
+    },
 )

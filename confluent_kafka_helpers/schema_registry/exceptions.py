@@ -1,0 +1,2 @@
+class SchemaNotFound(Exception):
+    pass
