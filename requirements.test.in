@@ -2,8 +2,10 @@ codecov
 flake8
 flake8-eradicate
 flake8-isort
+ipdb
 mypy
 pdbpp
+pip-tools
 pytest
 pytest-coverage
 pytest-mock
