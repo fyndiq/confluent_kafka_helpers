@@ -7,13 +7,14 @@ from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 
 from confluent_kafka_helpers.schema_registry.exceptions import SchemaNotFound
 from confluent_kafka_helpers.schema_registry.subject import SubjectNameStrategies
+from confluent_kafka_helpers.schema_registry.utils import get_schema_files
 
 logger = structlog.get_logger(__name__)
 
 
 class SchemaRegistryClient:
     def __init__(
-        self, url, topics=None, schemas_path=None, automatic_register=False,
+        self, url, topics=None, schemas_folder=None, automatic_register=False,
         key_subject_name_strategy=SubjectNameStrategies.TOPICRECORDNAME,
         value_subject_name_strategy=SubjectNameStrategies.TOPICRECORDNAME,
         client=CachedSchemaRegistryClient, serializer=MessageSerializer
@@ -21,7 +22,7 @@ class SchemaRegistryClient:
         self.client = client(url=url)
         self.serializer = serializer(self.client)
         self.topics = topics
-        self.schemas_path = schemas_path
+        self.schemas_folder = schemas_folder
         self.key_subject_name_strategy = key_subject_name_strategy
         self.value_subject_name_strategy = value_subject_name_strategy
 
@@ -61,3 +62,8 @@ class SchemaRegistryClient:
         else:
             logger.info("Schema is compatible with latest version")
         return compatible
+
+    def prefetch_schemas(self):
+        schemas = {}
+        for schema_file in get_schema_files(folder=self._schemas_folder):
+            pass

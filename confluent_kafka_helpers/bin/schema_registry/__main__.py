@@ -3,23 +3,28 @@
 Schema registry client.
 
 Usage:
-  schema-registry register (-s <subject> -f <file> | --automatic [--folder=<folder>] [--strategy=<strategy>])
+  schema-registry register (-s <subject> -f <file> | --automatic [--folder=<folder>]
+                           [--key-strategy=<key-strategy>] [--value-strategy=<value-strategy>])
                            [-h <hostname>] [--test]
 
 Commands:
-    register                Register a schema to schema registry.
+    register                        Register a schema to schema registry.
 
 Options:
-  -h --hostname=<hostname>  Schema registry hostname [default: http://localhost:8081].
-  -s --subject=<subject>    Subject the schema will be registered to.
-  -f --file=<file>          Avro schema file (*.avsc).
-  --automatic               Automatic find and register schemas in given folder [default: False].
-  --strategy=<strategy>     Subject name strategy to use when registering the schema.
-                            Available: TopicName, RecordName, TopicRecordName
-                            [default: TopicRecordName]
-  --folder=<folder>         Folder with Avro schemas [default: schemas].
-  --test                    Test schema compatibility before registration.
-                            [default: False].
+  -h --hostname=<hostname>          Schema registry hostname [default: http://localhost:8081].
+  -s --subject=<subject>            Subject the schema will be registered to.
+  -f --file=<file>                  Avro schema file (*.avsc).
+  --automatic                       Automatic find and register schemas in given folder
+                                    [default: False].
+  --key-strategy=<key-strategy>     Key subject name strategy to use when registering the schema.
+                                    Available: TopicName, RecordName, TopicRecordName
+                                    [default: TopicRecordName]
+  --value-strategy=<value-strategy> Value subject name strategy to use when registering the schema.
+                                    Available: TopicName, RecordName, TopicRecordName
+                                    [default: TopicRecordName]
+  --folder=<folder>                 Folder with Avro schemas [default: schemas].
+  --test                            Test schema compatibility before registration.
+                                    [default: False].
 """
 from docopt import docopt
 
