@@ -2,6 +2,7 @@ import os
 import sys
 
 import structlog
+from confluent_kafka import avro
 from fastavro.schema import load_schema
 from requests.exceptions import ConnectionError
 
@@ -24,32 +25,36 @@ class SchemaRegistrator:
         self._value_strategy = kwargs['--value-strategy']
         self._test_compatibility = kwargs['--test']
 
-        self._client = client(self._hostname)
+        self._client = client(
+            url=self._hostname, key_strategy=self._key_strategy, value_strategy=self._value_strategy
+        )
         self._schema_validator = schema_validator
         self._resolver = resolver
 
-    def _verify_schema(self, schema_file, subject):
-        logger.info("Verifying schema", file=schema_file)
+    def _verify_schema(self, schema_file, subject, is_key):
+        logger.info("Verifying schema file", schema_file=schema_file)
         try:
             self._schema_validator(schema_file)
         except Exception as e:
-            logger.error("Invalid schema", file=schema_file, error=e)
+            logger.error("Invalid schema", schema_file=schema_file, error=e)
             sys.exit(1)
         if self._test_compatibility:
-            compatible = self._client.test_compatibility(subject=subject, schema_file=schema_file)
+            compatible = self._client.test_compatibility(
+                schema_file=schema_file, subject=subject, is_key=is_key
+            )
             if not compatible:
                 sys.exit(1)
-        return schema_file
 
-    def _register_schema(self, schema_file, subject):
+    def _register_schema(self, schema_file, subject, is_key):
         try:
-            self._client.register_schema(subject, schema_file)
+            self._client.register_schema(schema_file=schema_file, subject=subject, is_key=is_key)
         except ConnectionError:
             logger.error("Could not connect to schema registry", url=SCHEMA_REGISTRY_URL)
             sys.exit(1)
 
-    def _register(self, subject, schema_file):
-        self._register_schema(self._verify_schema(schema_file, subject), subject)
+    def _register(self, schema_file, subject=None, is_key=False):
+        self._verify_schema(schema_file=schema_file, subject=subject, is_key=is_key)
+        self._register_schema(schema_file=schema_file, subject=subject, is_key=is_key)
 
     @staticmethod
     def factory(automatic):
@@ -61,25 +66,13 @@ class SchemaRegistrator:
 
 class ManualRegistrator(SchemaRegistrator):
     def register(self, subject, schema_file):
-        self._register(subject, schema_file)
+        self._register(subject=subject, schema_file=schema_file)
 
 
 class AutomaticRegistrator(SchemaRegistrator):
-    def _get_schema_files_and_subjects(self):
-        schema_files = utils.get_schema_files(folder=self._schemas_folder)
-        if not schema_files:
-            logger.error("Could not find any schemas in folder", folder=self._schemas_folder)
-            sys.exit(1)
+    def _register_schemas(self, schema_files):
         for schema_file, is_key in schema_files:
-            resolver = self._resolver.factory(
-                strategy=self._key_strategy if is_key else self._value_strategy
-            )
-            subject = resolver(is_key=is_key).get_subject(schema_file=schema_file)
-            yield schema_file, subject
-
-    def _register_schemas(self, schemas):
-        for schema_file, subject in schemas:
-            self._register(subject, schema_file)
+            self._register(schema_file=schema_file, is_key=is_key)
 
     def register(self, *args, **kwargs):
-        self._register_schemas(self._get_schema_files_and_subjects())
+        self._register_schemas(utils.get_schema_files(folder=self._schemas_folder))

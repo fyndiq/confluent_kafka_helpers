@@ -1,54 +1,46 @@
-import enum
-from pathlib import Path
-
-from confluent_kafka import avro
-
-
-class SubjectNameStrategies(enum.Enum):
+class SubjectNameStrategies:
     TOPICNAME = 'TopicName'
     RECORDNAME = 'RecordName'
     TOPICRECORDNAME = 'TopicRecordName'
 
 
 class SubjectNameResolver:
-    def __init__(self, is_key: bool = False):
-        self.is_key = is_key
-
-    @staticmethod
-    def factory(strategy: str):
-        if strategy == SubjectNameStrategies.TOPICNAME.value:
-            return TopicNameStrategyResolver
-        elif strategy == SubjectNameStrategies.RECORDNAME.value:
-            return RecordNameStrategyResolver
-        elif strategy == SubjectNameStrategies.TOPICRECORDNAME.value:
-            return TopicRecordNameStrategyResolver
+    def __init__(self, strategy: str):
+        if strategy == SubjectNameStrategies.TOPICNAME:
+            self._resolver = TopicNameStrategyResolver()
+        elif strategy == SubjectNameStrategies.RECORDNAME:
+            self._resolver = RecordNameStrategyResolver()
+        elif strategy == SubjectNameStrategies.TOPICRECORDNAME:
+            self._resolver = TopicRecordNameStrategyResolver()
         else:
             raise RuntimeError(f"Invalid subject name strategy: {strategy}")
 
-
-class TopicNameStrategyResolver(SubjectNameResolver):
-    def get_subject(self, schema_file: str) -> str:
-        return Path(schema_file).stem
-
-    def get_schema(self, topic: str):
-        pass
+    def get_subject(self, schema: str, topic: str = None, is_key: bool = False) -> str:
+        return self._resolver.get_subject(schema=schema, topic=topic, is_key=is_key)
 
 
-class RecordNameStrategyResolver(SubjectNameResolver):
-    def get_subject(self, schema_file: str) -> str:
-        schema = avro.load(schema_file)
-        name = schema.name
-        return f'{name}-key' if self.is_key else f'{name}-value'
-
-    def get_schema(self, topic):
-        pass
+class TopicNameStrategyResolver:
+    def get_subject(self, topic: str, is_key: bool, **kwargs) -> str:
+        if not topic:
+            raise ValueError("Topic must be specified when using TopicName strategy")
+        return "-".join([topic, 'key' if is_key else 'value'])
 
 
-class TopicRecordNameStrategyResolver(SubjectNameResolver):
-    def get_subject(self, schema_file: str) -> str:
-        schema = avro.load(schema_file)
-        fullname = schema.fullname
-        return f'{fullname}-key' if self.is_key else f'{fullname}-value'
+class RecordNameStrategyResolver:
+    def get_subject(self, schema: str, **kwargs) -> str:
+        if not schema:
+            raise ValueError(
+                "Schema must be specified when using RecordName strategy"
+            )
+        return schema.name
 
-    def get_schema(self, topic):
-        pass
+
+class TopicRecordNameStrategyResolver:
+    def get_subject(self, schema: str, is_key: bool, **kwargs) -> str:
+        if not schema:
+            if is_key:
+                return None
+            raise ValueError(
+                "Schema must be specified when using TopicRecordName strategy"
+            )
+        return "-".join([schema.fullname, 'key' if is_key else 'value'])
