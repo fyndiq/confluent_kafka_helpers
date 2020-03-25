@@ -6,13 +6,9 @@ import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
-from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_stats_cb, get_callback
-)
-from confluent_kafka_helpers.exceptions import (
-    EndOfPartition, KafkaTransportError
-)
-from confluent_kafka_helpers.message import Message
+from confluent_kafka_helpers.callbacks import default_error_cb, default_stats_cb, get_callback
+from confluent_kafka_helpers.consumer.message import Message
+from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.utils import retry_exception
 
@@ -76,12 +72,8 @@ class AvroConsumer:
         self.non_blocking = config.pop('non_blocking', False)
 
         self.config = {**self.DEFAULT_CONFIG, **config}
-        self.config['error_cb'] = get_callback(
-            config.pop('error_cb', None), default_error_cb
-        )
-        self.config['stats_cb'] = get_callback(
-            config.pop('stats_cb', None), default_stats_cb
-        )
+        self.config['error_cb'] = get_callback(config.pop('error_cb', None), default_error_cb)
+        self.config['stats_cb'] = get_callback(config.pop('stats_cb', None), default_stats_cb)
         self.topics = self._get_topics(self.config)
 
         logger.info("Initializing consumer", config=self.config)
@@ -91,8 +83,8 @@ class AvroConsumer:
         self._generator = self._message_generator()
 
         self._get_message = partial(
-            get_message, consumer=self.consumer, error_handler=error_handler,
-            timeout=poll_timeout, stop_on_eof=stop_on_eof
+            get_message, consumer=self.consumer, error_handler=error_handler, timeout=poll_timeout,
+            stop_on_eof=stop_on_eof
         )
 
     def __getattr__(self, name):
@@ -156,7 +148,6 @@ class AvroLazyConsumer(ConfluentAvroConsumer):
     We use this approach, because we want to check the key messages before
     decoding the message, this will avoid performance issues.
     """
-
     def poll(self, timeout=None):
         if timeout is None:
             timeout = -1
