@@ -19,7 +19,7 @@ setup(
     zip_safe=False,
     entry_points={
         "console_scripts": [
-            "schema-registry=confluent_kafka_helpers.bin.schema_registry.__main__:main"
+            "schema-registry=confluent_kafka_helpers.schema_registry.bin.__main__:main"
         ]
     },
 )

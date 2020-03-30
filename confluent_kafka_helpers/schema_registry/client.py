@@ -1,23 +1,22 @@
 from functools import lru_cache
 
 import structlog
-from confluent_kafka import avro
 from confluent_kafka.avro.cached_schema_registry_client import CachedSchemaRegistryClient
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 
-from confluent_kafka_helpers.schema_registry import subject, utils
-from confluent_kafka_helpers.schema_registry.exceptions import SchemaNotFound
+from confluent_kafka_helpers.schema_registry import exceptions, subject
+from confluent_kafka_helpers.schema_registry.cache import schema_cache
 
 logger = structlog.get_logger(__name__)
 
 
 class SchemaRegistryClient:
-    def __init__(
+    def init(
         self, url, schemas_folder=None, automatic_register=False,
         key_strategy=subject.SubjectNameStrategies.TOPICRECORDNAME,
         value_strategy=subject.SubjectNameStrategies.TOPICRECORDNAME,
         client=CachedSchemaRegistryClient, serializer=MessageSerializer,
-        resolver=subject.SubjectNameResolver
+        resolver=subject.SubjectNameResolver, cache=schema_cache
     ):
         self._client = client(url=url)
         self._serializer = serializer(self._client)
@@ -26,19 +25,18 @@ class SchemaRegistryClient:
         self._key_strategy = key_strategy
         self._value_strategy = value_strategy
         self._resolver = resolver
+        self._cache = cache
 
-    def get_latest_schema(self, schema=None, subject=None, topic=None, is_key=False):
-        if not subject:
-            resolver = self._resolver(
-                strategy=self._key_strategy if is_key else self._value_strategy
-            )
-            subject = resolver.get_subject(schema=schema, is_key=is_key, topic=topic)
-        if not subject:
-            return
-        schema_id, schema, version = self._client.get_latest_schema(subject)
-        if not schema:
-            raise SchemaNotFound(f"Schema for subject {subject} not found")
-        return schema
+    @property
+    def cache(self):
+        return self._cache
+
+    def _resolve_subject(self, subject, schema, topic, is_key):
+        if subject:
+            return subject
+        resolver = self._resolver(strategy=self._key_strategy if is_key else self._value_strategy)
+        subject = resolver.get_subject(schema=schema, is_key=is_key, topic=topic)
+        return subject
 
     @lru_cache(maxsize=None)
     def get_latest_cached_schema(self, subject):
@@ -49,38 +47,56 @@ class SchemaRegistryClient:
         key = self._serializer.encode_record_with_schema(topic, schema, key, is_key=True)
         return key
 
-    def register_schema(self, schema_file, subject=None, is_key=False):
-        schema = avro.load(schema_file)
+    def get_latest_schema(self, schema, subject=None, topic=None, is_key=False):
+        if cached_schema := self._cache.get(schema=schema):
+            return cached_schema
+
+        subject = self._resolve_subject(subject=subject, schema=schema, topic=topic, is_key=is_key)
         if not subject:
-            resolver = self._resolver(
-                strategy=self._key_strategy if is_key else self._value_strategy
-            )
-            subject = resolver.get_subject(
-                schema=schema, is_key=is_key,
-                topic=utils.get_topic_from_schema_file(schema_file=schema_file)
-            )
-        logger.info("Registering schema", subject=subject, schema=schema)
+            return None, None, None
+
+        schema_id, schema, version = self._client.get_latest_schema(subject)
+        if not schema:
+            raise exceptions.SchemaNotFound(f"Schema for subject {subject} not found")
+        self._cache.update(schema=schema, schema_id=schema_id, subject=subject)
+
+        return schema, schema_id, subject
+
+    def register_schema(self, schema, subject=None, topic=None, is_key=False):
+        subject = self._resolve_subject(subject=subject, schema=schema, topic=topic, is_key=is_key)
+        logger.info("Registering schema", subject=subject, topic=topic, is_key=is_key)
         schema_id = self._client.register(subject, schema)
-        logger.info("Registered schema with id", id=schema_id)
+        self._cache.update(schema=schema, schema_id=schema_id, subject=subject)
         return schema_id
 
-    def test_compatibility(self, schema_file, subject=None, is_key=False):
-        schema = avro.load(schema_file)
-        topic = utils.get_topic_from_schema_file(schema_file=schema_file)
-        if not subject:
-            resolver = self._resolver(
-                strategy=self._key_strategy if is_key else self._value_strategy
+    def get_schema_id_or_register(self, schema, topic, is_key):
+        schema_id = self._cache.get_schema_id(schema)
+        if not schema_id:
+            if not self._automatic_register:
+                message = (
+                    "You must enable 'schemas.automatic.register.enabled' to "
+                    "automatically register schemas at runtime"
+                )
+                raise RuntimeError(message)
+            logger.info(
+                "Schema not found, continuing with registration", schema_name=schema.fullname,
+                topic=topic, is_key=is_key
             )
-            subject = resolver.get_subject(schema=schema, is_key=is_key, topic=topic)
-        logger.info("Testing compatibility for schema", subject=subject, fullname=schema.fullname)
+            schema_id = self.register_schema(schema=schema, topic=topic, is_key=is_key)
+        return schema_id
+
+    def test_compatibility(self, schema, subject=None, topic=None, is_key=False):
+        logger.info(
+            "Testing compatibility for schema", subject=subject, schema_name=schema.fullname,
+            topic=topic, is_key=is_key
+        )
         try:
-            self.get_latest_schema(schema=schema, subject=subject, topic=topic, is_key=is_key)
-        except SchemaNotFound:
-            logger.info("Schema not found, continuing")
+            *_, subject = self.get_latest_schema(
+                schema=schema, subject=subject, topic=topic, is_key=is_key
+            )
+        except exceptions.SchemaNotFound:
             return True
-        compatible = self._client.test_compatibility(subject=subject, avro_schema=schema)
-        if not compatible:
-            logger.error("Schema not compatible with latest version")
-        else:
-            logger.info("Schema is compatible with latest version")
-        return compatible
+        return self._client.test_compatibility(subject=subject, avro_schema=schema)
+
+
+schema_registry = SchemaRegistryClient()

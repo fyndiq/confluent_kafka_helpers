@@ -10,8 +10,8 @@ import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 
 from confluent_kafka_helpers.consumer import AvroLazyConsumer, get_message
+from confluent_kafka_helpers.consumer.message import Message
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
-from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.schema_registry.client import SchemaRegistryClient
 

@@ -13,7 +13,7 @@ class SubjectNameResolver:
         elif strategy == SubjectNameStrategies.TOPICRECORDNAME:
             self._resolver = TopicRecordNameStrategyResolver()
         else:
-            raise RuntimeError(f"Invalid subject name strategy: {strategy}")
+            raise ValueError(f"Invalid subject name strategy '{strategy}'")
 
     def get_subject(self, schema: str, topic: str = None, is_key: bool = False) -> str:
         return self._resolver.get_subject(schema=schema, topic=topic, is_key=is_key)
@@ -36,11 +36,11 @@ class RecordNameStrategyResolver:
 
 
 class TopicRecordNameStrategyResolver:
-    def get_subject(self, schema: str, is_key: bool, **kwargs) -> str:
-        if not schema:
+    def get_subject(self, topic: str, schema: str, is_key: bool, **kwargs) -> str:
+        if not all([topic, schema]):
             if is_key:
                 return None
             raise ValueError(
-                "Schema must be specified when using TopicRecordName strategy"
+                "Both topic and schema must be specified when using TopicRecordName strategy"
             )
-        return "-".join([schema.fullname, 'key' if is_key else 'value'])
+        return "-".join([topic, schema.fullname, 'key' if is_key else 'value'])
