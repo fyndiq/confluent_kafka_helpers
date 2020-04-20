@@ -10,7 +10,7 @@ entrypoints==0.3
 eradicate==1.0
 fancycompleter==0.9.1
 flake8-eradicate==0.3.0
-flake8-isort==2.9.0
+flake8-isort==2.9.1
 flake8==3.7.9
 idna==2.9
 ipdb==0.13.2
@@ -29,11 +29,13 @@ pexpect==4.8.0
 pickleshare==0.7.5
 pip-tools==4.5.1
 pluggy==0.13.1
-prompt-toolkit==3.0.4
+prompt-toolkit==3.0.5
 ptyprocess==0.6.0
 py==1.8.1
 pycodestyle==2.5.0
+git+https://github.com/PyCQA/pycodestyle.git@master
 pyflakes==2.1.1
+git+https://github.com/PyCQA/pyflakes.git@master
 pygments==2.6.1
 pyparsing==2.4.6
 pyrepl==0.9.0
@@ -50,7 +52,7 @@ traitlets==4.3.3
 typed-ast==1.4.1
 typing-extensions==3.7.4.1
 urllib3==1.25.8
-wcwidth==0.1.8
+wcwidth==0.1.9
 wmctrl==0.3
 
 # The following packages are considered to be unsafe in a requirements file:

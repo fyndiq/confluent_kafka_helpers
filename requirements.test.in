@@ -9,3 +9,7 @@ pip-tools
 pytest
 pytest-coverage
 pytest-mock
+
+# walrus operator support, wait for next release >1.7.1, >2.3.1
+git+https://github.com/PyCQA/pycodestyle.git@master
+git+https://github.com/PyCQA/pyflakes.git@master
