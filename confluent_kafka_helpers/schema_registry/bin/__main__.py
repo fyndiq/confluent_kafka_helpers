@@ -9,6 +9,7 @@ Usage:
 
 Available commands:
     register                   Register a schema to schema registry.
+    test                       Test schema compatibility against latest version.
 
 Options:
   -s --subject=<subject>       Schema subject name.
@@ -30,7 +31,7 @@ import os
 
 from docopt import docopt
 
-from confluent_kafka_helpers.schema_registry.bin import register
+from confluent_kafka_helpers.schema_registry.bin import register, test
 from confluent_kafka_helpers.schema_registry.client import schema_registry
 
 args = docopt(__doc__)
@@ -52,6 +53,11 @@ def main():
         register.run(
             automatic=automatic, test_compatibility=test_compatibility, topic=topic, folder=folder,
             subject=subject, schema_file=schema_file
+        )
+    elif command == 'test':
+        test.run(
+            automatic=automatic, folder=folder, schema_file=schema_file, subject=subject,
+            topic=topic
         )
 
 
