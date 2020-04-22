@@ -7,24 +7,15 @@ jobs:
     steps:
       - checkout
       - run:
-          name: Install virtualenv
-          command: pip install virtualenv
-      - restore_cache:
-          key: deps1-{{ .Branch }}-{{ checksum "requirements.txt" }}
-      - run:
           name: Install dependencies
-          command: make setup
-      - save_cache:
-          key: deps1-{{ .Branch }}-{{ checksum "requirements.txt" }}
-          paths:
-            - ".venv"
+          command: pip install -r requirements.txt
       - run:
-          name: Running tests
+          name: Run unit tests
           command: make test-ci
       - store_test_results:
           path: /tmp/test-results
       - run:
-          name: Running lint
+          name: Run lint
           command: make lint
 
 workflows:
