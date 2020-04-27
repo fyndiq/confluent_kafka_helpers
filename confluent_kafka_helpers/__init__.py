@@ -11,7 +11,7 @@ import confluent_kafka
 import structlog
 
 logger = structlog.get_logger(__name__)
-logger.info(
+logger.debug(
     "Using confluent kafka versions", version=confluent_kafka.version(),
     libversion=confluent_kafka.libversion()
 )
