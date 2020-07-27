@@ -28,7 +28,7 @@ def default_on_delivery_cb(
     if custom_cb:
         custom_cb(error, message)
     if error:
-        raise KafkaDeliveryError(str(error))
+        raise KafkaDeliveryError(str(error), message)
 
 
 def default_stats_cb(stats, custom_cb=None, send_metrics=StatsCallbackMetrics):
