@@ -7,3 +7,11 @@ class KafkaTransportError(Exception):
     Kafka transport errors:
         - GroupCoordinator response error: Local: Broker transport failure
     """
+
+
+class KafkaError(Exception):
+    pass
+
+
+class KafkaDeliveryError(Exception):
+    pass
