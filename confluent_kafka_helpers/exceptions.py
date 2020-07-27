@@ -7,3 +7,13 @@ class KafkaTransportError(Exception):
     Kafka transport errors:
         - GroupCoordinator response error: Local: Broker transport failure
     """
+
+
+class KafkaError(Exception):
+    pass
+
+
+class KafkaDeliveryError(KafkaError):
+    def __init__(self, error: str, message):
+        self.error = error
+        self.message = message

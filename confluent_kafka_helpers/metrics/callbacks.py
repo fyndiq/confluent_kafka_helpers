@@ -1,27 +1,17 @@
 from functools import partial
 
-import structlog
-
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.metrics.stats import StatsParser
 
-logger = structlog.get_logger(__name__)
+
+def error_cb_metrics(error, statsd=statsd):
+    statsd.event("Kafka error", str(error), alert_type='error')
 
 
-def error_cb_metrics(error, statsd=statsd, logger=logger):
-    error_msg = "Kafka error"
-    statsd.event(error_msg, str(error), alert_type='error')
-    logger.critical(error_msg, error=str(error))
-
-
-def on_delivery_cb_metrics(error, message, statsd=statsd, logger=logger):
+def on_delivery_cb_metrics(error, message, statsd=statsd):
     statsd.increment(f'{base_metric}.producer.message.count.total')
     if error:
         statsd.increment(f'{base_metric}.producer.message.count.error')
-        logger.error(
-            "Produce failed", key=message.key(), value=message.value(),
-            error=str(error)
-        )
 
 
 class StatsCallbackMetrics:

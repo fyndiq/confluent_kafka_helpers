@@ -8,27 +8,23 @@ from confluent_kafka_helpers.metrics.callbacks import (
 class ErrorCallbackMetricsTests:
     def test_event_should_be_sent(self):
         statsd = Mock()
-        logger = Mock()
-        error_cb_metrics('foo', statsd, logger)
+        error_cb_metrics('foo', statsd)
 
         assert statsd.event.called is True
-        assert logger.critical.called is True
 
 
 class OnDeliveryCallbackMetricsTests:
     def test_total_counter_increased(self):
         statsd = Mock()
-        on_delivery_cb_metrics(None, 'foo', statsd, Mock())
+        on_delivery_cb_metrics(None, 'foo', statsd)
 
         assert statsd.increment.called is True
 
     def test_error_counter_increased(self):
         statsd = Mock()
-        logger = Mock()
-        on_delivery_cb_metrics('error', Mock(), statsd, logger)
+        on_delivery_cb_metrics('error', Mock(), statsd)
 
         assert statsd.increment.call_count == 2
-        assert logger.error.called is True
 
 
 class StatsCallbackMetricsTests:
