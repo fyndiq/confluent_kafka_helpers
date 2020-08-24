@@ -2,7 +2,7 @@ from functools import partial
 
 from confluent_kafka_helpers.exceptions import KafkaDeliveryError, KafkaError
 from confluent_kafka_helpers.metrics.callbacks import (
-    StatsCallbackMetrics, error_cb_metrics, on_delivery_cb_metrics
+    StatsCallbackMetrics, error_cb_metrics, on_delivery_cb_metrics, stats_cb_metrics
 )
 
 
@@ -31,7 +31,7 @@ def default_on_delivery_cb(
         raise KafkaDeliveryError(str(error), message)
 
 
-def default_stats_cb(stats, custom_cb=None, send_metrics=StatsCallbackMetrics):
+def default_stats_cb(stats, custom_cb=None, send_metrics=stats_cb_metrics):
     send_metrics(stats)
     if custom_cb:
         custom_cb(stats)

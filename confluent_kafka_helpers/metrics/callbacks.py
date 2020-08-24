@@ -1,3 +1,4 @@
+import json
 from functools import partial
 
 from confluent_kafka_helpers.metrics import base_metric, statsd
@@ -12,6 +13,38 @@ def on_delivery_cb_metrics(error, message, statsd=statsd):
     statsd.increment(f'{base_metric}.producer.message.count.total')
     if error:
         statsd.increment(f'{base_metric}.producer.message.count.error')
+
+
+def stats_cb_metrics(stats, statsd=statsd):
+    stats = json.loads(stats)
+    base_tags = [f'instance_type:{stats["type"]}']
+
+    _send_top_level_stats(stats, base_tags, statsd)
+    _send_broker_stats(stats, base_tags, statsd)
+    _send_toppar_stats(stats, base_tags, statsd)
+    _send_cgrp_stats(stats, base_tags, statsd)
+
+
+def _send_top_level_stats(stats, statsd):
+    base = f'{base_metric}.librdkafka'
+    gauge = partial(self.statsd.gauge, tags=self.base_tags)
+    gauge(f'{base}.replyq', self.stats.replyq)
+    gauge(f'{base}.msg_cnt', self.stats.msg_cnt)
+    gauge(f'{base}.msg_size', self.stats.msg_size)
+    gauge(f'{base}.msg_max', self.stats.msg_max)
+    gauge(f'{base}.msg_size_mac', self.stats.msg_size_mac)
+
+
+def _send_broker_stats(stats):
+    pass
+
+
+def _send_toppar_stats(stats):
+    pass
+
+
+def _send_cgrp_stats(stats):
+    pass
 
 
 class StatsCallbackMetrics:
