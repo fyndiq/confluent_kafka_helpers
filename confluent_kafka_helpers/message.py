@@ -1,8 +1,3 @@
-"""
-This module only contains the Message class
-definition for yielding in the consumers of
-kafka messages.
-"""
 import datetime
 
 
@@ -28,7 +23,13 @@ class Message:
         self._meta = MessageMetadata(kafka_message)
 
     def __repr__(self):
-        return f"Message(value={self.value})"
+        return (
+            f"Message("
+            f"value={self.value}, "
+            f"_raw={self._raw}, "
+            f"_meta={self._meta}"
+            f")"
+        )
 
     def __bool__(self):
         return True if self.value else False
@@ -44,20 +45,34 @@ class Message:
 
 
 class MessageMetadata:
-    __slots__ = ["key", "partition", "offset", "timestamp", "datetime", "topic"]
+    __slots__ = [
+        "datetime",
+        "headers",
+        "key",
+        "offset",
+        "partition",
+        "timestamp",
+        "topic",
+    ]
 
     def __init__(self, kafka_message):
         self.key = kafka_message.key()
         self.partition = kafka_message.partition()
         self.offset = kafka_message.offset()
         self.topic = kafka_message.topic()
+        self.headers = kafka_message.headers()
         self.timestamp = extract_timestamp_from_message(kafka_message)
         self.datetime = kafka_timestamp_to_datetime(self.timestamp)
 
     def __repr__(self):
-        msg = (
-            f"MessageMeta(key={self.key}, partition={self.partition}, "
-            f"offset={self.offset}, topic={self.topic}, "
-            f"timestamp={self.timestamp}, datetime={self.datetime})"
+        return (
+            f"MessageMetadata("
+            f"key={self.key}, "
+            f"partition={self.partition}, "
+            f"offset={self.offset}, "
+            f"topic={self.topic}, "
+            f"headers={self.headers}, "
+            f"timestamp={self.timestamp}, "
+            f"datetime={self.datetime}"
+            f")"
         )
-        return msg
