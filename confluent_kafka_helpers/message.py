@@ -60,7 +60,7 @@ class MessageMetadata:
         self.partition = kafka_message.partition()
         self.offset = kafka_message.offset()
         self.topic = kafka_message.topic()
-        self.headers = kafka_message.headers()
+        self.headers = kafka_message.headers() or {}
         self.timestamp = extract_timestamp_from_message(kafka_message)
         self.datetime = kafka_timestamp_to_datetime(self.timestamp)
 

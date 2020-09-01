@@ -25,7 +25,7 @@ class PollReturnMock:
     topic.return_value = "test"
     timestamp = MagicMock()
     timestamp.return_value = (1, -1)
-    headers = MagicMock(return_value=None)
+    headers = MagicMock(return_value={})
 
 
 class ConfluentAvroConsumerMock(MagicMock):
