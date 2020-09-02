@@ -14,6 +14,14 @@ def extract_timestamp_from_message(kafka_message):
     return timestamp
 
 
+def decode_kafka_headers(headers):
+    if headers and isinstance(headers, list):
+        headers = {k: v.decode('utf-8') for k, v in dict(headers).items()}
+    else:
+        headers = {}
+    return headers
+
+
 class Message:
     __slots__ = ["value", "_raw", "_meta"]
 
@@ -60,7 +68,7 @@ class MessageMetadata:
         self.partition = kafka_message.partition()
         self.offset = kafka_message.offset()
         self.topic = kafka_message.topic()
-        self.headers = kafka_message.headers() or {}
+        self.headers = decode_kafka_headers(kafka_message.headers())
         self.timestamp = extract_timestamp_from_message(kafka_message)
         self.datetime = kafka_timestamp_to_datetime(self.timestamp)
 
