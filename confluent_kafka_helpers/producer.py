@@ -10,6 +10,7 @@ from confluent_kafka_helpers.callbacks import (
 from confluent_kafka_helpers.schema_registry import (
     AvroSchemaRegistry, SchemaNotFound
 )
+from confluent_kafka_helpers.tracing import tags, tracer
 
 logger = structlog.get_logger(__name__)
 
@@ -95,7 +96,9 @@ class AvroProducer(ConfluentAvroProducer):
 
         return topic_schemas
 
-    def produce(self, value, key=None, topic=None, **kwargs):
+    def produce(self, value, key=None, topic=None, headers=None, **kwargs):
+        if headers is None:
+            headers = {}
         topic = topic or self.default_topic
         try:
             _, key_schema, value_schema = self.topic_schemas[topic]
@@ -105,8 +108,13 @@ class AvroProducer(ConfluentAvroProducer):
         if self.value_serializer:
             value = self.value_serializer(value)
 
+        span = tracer.start_span(
+            'kafka.produce', tags=tags.get_producer_tags(topic=topic, key=key)
+        )
+        tracer.inject(span.context, carrier=headers)
         logger.info("Producing message", topic=topic, key=key, value=value)
         super().produce(
             topic=topic, key=key, value=value, key_schema=key_schema,
-            value_schema=value_schema, **kwargs
+            value_schema=value_schema, headers=headers, **kwargs
         )
+        span.finish()
