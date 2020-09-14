@@ -13,6 +13,9 @@ lint:
 publish:
 	./scripts/publish.sh
 
+pip-update:
+	./scripts/pip-update.sh
+
 test: unit-test lint
 
 .PHONY: test
