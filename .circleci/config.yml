@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: ~/build
     docker:
-      - image: fyndiq/python-alpine-kafka:latest
+      - image: fyndiq/python-confluent-kafka:latest
     steps:
       - checkout
       - run:
