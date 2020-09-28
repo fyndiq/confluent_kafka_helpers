@@ -57,7 +57,7 @@ class AvroConsumer:
     DEFAULT_CONFIG = {
         'client.id': socket.gethostname(),
         'default.topic.config': {
-            'auto.offset.reset': 'latest'
+            'auto.offset.reset': 'earliest'
         },
         'enable.auto.commit': False,
         'fetch.error.backoff.ms': 0,
