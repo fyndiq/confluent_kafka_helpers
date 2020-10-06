@@ -1,11 +1,12 @@
 """
-Default atexit registered functions will not be triggered on error signals.
+Default exit functions (atexit) will not be triggered on signals.
 
-However - if we manually handle the error signals and exit, the functions will
-be triggered.
+However - if we manually register handlers for the signals the exit functions
+are triggered correctly.
+
+NOTE! Exit functions will not be triggered on SIGKILL, SIGSTOP or os._exit()
 """
 import signal
-import sys
 
 import confluent_kafka
 import structlog
@@ -18,14 +19,11 @@ logger.debug(
 
 
 def error_handler(signum, frame):
-    logger.info("Received signal", signum=signum)
-    exit_code = 128 + signum
-    sys.exit(exit_code)
+    logger.debug("Received signal", signum=signum)
 
 
 def interrupt_handler(signum, frame):
-    logger.info("Received signal", signum=signum)
-    sys.exit(1)
+    logger.debug("Received signal", signum=signum)
 
 
 signal.signal(signal.SIGTERM, error_handler)  # graceful shutdown

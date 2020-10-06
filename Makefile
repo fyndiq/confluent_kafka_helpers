@@ -1,5 +1,8 @@
-test:
-	./scripts/test.sh
+unit-test:
+	./scripts/unit-test.sh
+
+unit-test-ci:
+	./scripts/unit-test.sh ci
 
 setup:
 	./scripts/setup.sh
@@ -7,10 +10,12 @@ setup:
 lint:
 	./scripts/lint.sh
 
-test-ci:
-	./scripts/test.sh ci
-
 publish:
 	./scripts/publish.sh
+
+pip-update:
+	./scripts/pip-update.sh
+
+test: unit-test lint
 
 .PHONY: test
