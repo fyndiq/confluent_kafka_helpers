@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="confluent-kafka-helpers",
-    version="0.7.7",
+    version="0.7.8",
     description="Helpers for Confluent's Kafka Python client",
     url="https://github.com/fyndiq/confluent_kafka_helpers",
     author="Fyndiq AB",
