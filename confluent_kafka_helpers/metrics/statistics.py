@@ -67,7 +67,7 @@ def send_broker_stats(stats, base_tags):
         'sum',
         'cnt',
     ]
-    for name, broker in stats['brokers'].items():
+    for name, broker in stats.get('brokers', {}).items():
         if broker.get('nodeid') == -1:  # bootstrap servers
             continue
         tags = base_tags + [f'broker:{name}']
@@ -92,4 +92,4 @@ def send_cgrp_stats(stats, base_tags):
         'assignment_size',
     ]
     for metric in metrics:
-        send_metric(base, metric, stats['cgrp'], base_tags)
+        send_metric(base, metric, stats.get('cgrp'), base_tags)
