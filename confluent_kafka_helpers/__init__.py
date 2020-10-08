@@ -36,7 +36,7 @@ def termination_handler(signum, frame):
 
 def interrupt_handler(signum, frame):
     logger.debug("Received interrupt signal", signum=signum)
-    if existing_interrupt_handler:
+    if existing_interrupt_handler is not signal.default_int_handler:
         logger.debug(
             "Using existing interrupt handler",
             name=existing_interrupt_handler.__qualname__
