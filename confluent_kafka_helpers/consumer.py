@@ -57,14 +57,9 @@ class AvroConsumer:
             'auto.offset.reset': 'earliest'
         },
         'enable.auto.commit': False,
-        'fetch.error.backoff.ms': 0,
-        'fetch.wait.max.ms': 100,
-        'fetch.min.bytes': 1000,
+        'fetch.wait.max.ms': 1000,
         'log.connection.close': False,
         'log.thread.name': False,
-        'statistics.interval.ms': 15000,
-        'queued.max.messages.kbytes': '10485',
-        'fetch.message.max.bytes': '10485',
     }
 
     def __init__(

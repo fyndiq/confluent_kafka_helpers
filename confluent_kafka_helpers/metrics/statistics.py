@@ -10,7 +10,6 @@ def send_metric(base, metric, stats, tags):
         return
     value = stats.get(metric)
     name = f'{base}.{metric}'
-    logger.debug("Sending metric", name=name, value=value, tags=tags)
     statsd.gauge(name, value, tags=tags)
 
 
