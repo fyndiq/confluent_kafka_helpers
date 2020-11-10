@@ -58,6 +58,7 @@ class AvroConsumer:
         },
         'enable.auto.commit': False,
         'fetch.wait.max.ms': 1000,
+        'fetch.min.bytes': 10000,
         'log.connection.close': False,
         'log.thread.name': False,
     }

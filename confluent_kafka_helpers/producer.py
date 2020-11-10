@@ -29,6 +29,7 @@ class AvroProducer(ConfluentAvroProducer):
         'log.connection.close': False,
         'retries': 5,  # remove in 1.5.2
         'enable.idempotence': True,
+        'linger.ms': 1000,
     }
 
     def __init__(self, config, value_serializer=None,
