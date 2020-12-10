@@ -66,7 +66,7 @@ class OpenTracerBackend:
     def inject_headers_and_start_span(self, operation_name, headers):
         span = self.start_span(operation_name=operation_name)
         self._tracer.inject(
-            span_context=self._tracer.active_span.context, carrier=headers,
+            span_context=self.active_span.context, carrier=headers,
             format=opentracing.Format.TEXT_MAP
         )
         return span
