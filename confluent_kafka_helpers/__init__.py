@@ -14,8 +14,9 @@ import structlog
 
 logger = structlog.get_logger(__name__)
 logger.debug(
-    "Using confluent kafka versions", version=confluent_kafka.version(),
-    libversion=confluent_kafka.libversion()
+    "Using confluent kafka versions",
+    version=confluent_kafka.version(),
+    libversion=confluent_kafka.libversion(),
 )
 
 existing_termination_handler = signal.getsignal(signal.SIGTERM)
@@ -26,8 +27,7 @@ def termination_handler(signum, frame):
     logger.debug("Received termination signal", signum=signum)
     if existing_termination_handler:
         logger.debug(
-            "Using existing termination handler",
-            name=existing_termination_handler.__qualname__
+            "Using existing termination handler", name=existing_termination_handler.__qualname__
         )
         existing_termination_handler(signum, frame)
     else:
@@ -38,8 +38,7 @@ def interrupt_handler(signum, frame):
     logger.debug("Received interrupt signal", signum=signum)
     if existing_interrupt_handler is not signal.default_int_handler:
         logger.debug(
-            "Using existing interrupt handler",
-            name=existing_interrupt_handler.__qualname__
+            "Using existing interrupt handler", name=existing_interrupt_handler.__qualname__
         )
         existing_interrupt_handler(signum, frame)
     else:

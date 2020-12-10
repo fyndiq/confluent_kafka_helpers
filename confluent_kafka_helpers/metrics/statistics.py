@@ -74,8 +74,9 @@ def send_broker_stats(stats, base_tags):
             send_metric(base, metric, broker, tags)
         for metric in window_metrics:
             int_latency, rtt, throttle = (
-                broker.get('int_latency'), broker.get('rtt'),
-                broker.get('throttle')
+                broker.get('int_latency'),
+                broker.get('rtt'),
+                broker.get('throttle'),
             )
             send_metric(f'{base}.int_latency', metric, int_latency, tags)
             send_metric(f'{base}.rtt', metric, rtt, tags)

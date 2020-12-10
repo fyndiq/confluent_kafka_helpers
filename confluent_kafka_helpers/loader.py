@@ -10,9 +10,7 @@ import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
 
 from confluent_kafka_helpers.consumer import AvroLazyConsumer, get_message
-from confluent_kafka_helpers.exceptions import (
-    EndOfPartition, KafkaTransportError
-)
+from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry
@@ -50,9 +48,7 @@ def find_duplicated_messages(messages, logger=logger):
 
     for message, pos in sorted(duplicates.items()):
         if len(pos) > 1:
-            logger.critical(
-                "Duplicated messages found", message=message, pos=pos
-            )
+            logger.critical("Duplicated messages found", message=message, pos=pos)
 
 
 def default_error_handler(kafka_error):
@@ -70,8 +66,7 @@ def default_error_handler(kafka_error):
 
 class MessageGenerator:
     def __init__(
-        self, consumer, key, key_filter,
-        error_handler: Callable = default_error_handler
+        self, consumer, key, key_filter, error_handler: Callable = default_error_handler
     ) -> None:
         self.consumer = consumer
         self.key = key
@@ -80,8 +75,7 @@ class MessageGenerator:
         self._generator = self._message_generator()
 
         self._get_message = partial(
-            get_message, consumer=consumer, error_handler=error_handler,
-            stop_on_eof=True
+            get_message, consumer=consumer, error_handler=error_handler, stop_on_eof=True
         )
 
     def __iter__(self):
@@ -136,9 +130,7 @@ class AvroMessageLoader:
     DEFAULT_CONFIG = {
         'log.connection.close': False,
         'log.thread.name': False,
-        'default.topic.config': {
-            'auto.offset.reset': 'earliest'
-        },
+        'default.topic.config': {'auto.offset.reset': 'earliest'},
         'fetch.wait.max.ms': 10,
         'fetch.min.bytes': 1000,
         'offset.store.method': 'none',
@@ -154,9 +146,7 @@ class AvroMessageLoader:
         self.num_partitions = int(config['num_partitions'])
 
         default_key_subject_name = f'{self.topic}-key'
-        self.key_subject_name = config.get(
-            'key_subject_name', default_key_subject_name
-        )
+        self.key_subject_name = config.get('key_subject_name', default_key_subject_name)
 
         schema_registry_url = config['consumer']['schema.registry.url']
         schema_registry = AvroSchemaRegistry(schema_registry_url)
@@ -174,8 +164,7 @@ class AvroMessageLoader:
         logger.info("Closing consumer (loader)")
         self.consumer.close()
 
-    def load(self, key, key_filter=default_key_filter,
-             partitioner=default_partitioner):  # yapf: disable
+    def load(self, key, key_filter=default_key_filter, partitioner=default_partitioner):
         """
         Load all messages from a topic for the given key.
 
@@ -207,7 +196,9 @@ class AvroMessageLoader:
 
         self.consumer.assign([partition])
         logger.info(
-            "Loading messages from repository", topic=self.topic, key=key,
-            partition_num=partition_num
+            "Loading messages from repository",
+            topic=self.topic,
+            key=key,
+            partition_num=partition_num,
         )
         return MessageGenerator(self.consumer, serialized_key, key_filter)

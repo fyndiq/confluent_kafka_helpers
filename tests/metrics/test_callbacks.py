@@ -2,7 +2,9 @@ import json
 from unittest.mock import MagicMock, patch
 
 from confluent_kafka_helpers.metrics.callbacks import (
-    error_cb_metrics, on_delivery_cb_metrics, stats_cb_metrics
+    error_cb_metrics,
+    on_delivery_cb_metrics,
+    stats_cb_metrics,
 )
 
 
@@ -33,13 +35,7 @@ class StatsCallbackMetricsTests:
     def test_metrics_should_be_sent(self, statsd):
         stats = {
             'cgrp': {'a': 1},
-            'brokers': {
-                '1': {
-                    'rtt': {'a': 1},
-                    'int_latency': {'a': 1},
-                    'throttle': {'a': 1}
-                }
-            }
+            'brokers': {'1': {'rtt': {'a': 1}, 'int_latency': {'a': 1}, 'throttle': {'a': 1}}},
         }
         stats_cb_metrics(json.dumps(stats))
 

@@ -10,6 +10,7 @@ class TestRetryException:
         @retry_exception([ValueError])
         def foo(mock):
             raise mock()
+
         mock = Mock(side_effect=ValueError)
         with pytest.raises(ValueError):
             foo(mock)
@@ -19,6 +20,7 @@ class TestRetryException:
         @retry_exception([ZeroDivisionError])
         def foo(mock):
             return 2 / mock()
+
         mock = Mock(side_effect=[0, 1])
         value = foo(mock)
         assert mock.call_count == 2

@@ -29,9 +29,7 @@ class OpenTracerBackend:
         #
         # https://docs.datadoghq.com/tracing/visualization/trace/?tab=spantags
         try:
-            scope = self._tracer.start_active_span(
-                *args, tags=DEFAULT_TAGS, **kwargs
-            )
+            scope = self._tracer.start_active_span(*args, tags=DEFAULT_TAGS, **kwargs)
             yield scope.span
         finally:
             self.log_exception(span=scope.span)
@@ -58,16 +56,16 @@ class OpenTracerBackend:
             span = self.start_active_span(operation_name=operation_name)
         else:
             span = self.start_active_span(
-                operation_name=operation_name,
-                references=[opentracing.follows_from(parent_context)]
+                operation_name=operation_name, references=[opentracing.follows_from(parent_context)]
             )
         return span
 
     def inject_headers_and_start_span(self, operation_name, headers):
         span = self.start_span(operation_name=operation_name)
         self._tracer.inject(
-            span_context=self.active_span.context, carrier=headers,
-            format=opentracing.Format.TEXT_MAP
+            span_context=self.active_span.context,
+            carrier=headers,
+            format=opentracing.Format.TEXT_MAP,
         )
         return span
 
@@ -77,9 +75,7 @@ class OpenTracerBackend:
             return
 
         buffer = io.StringIO()
-        traceback.print_exception(
-            exc_type, exc_value, exc_tb, file=buffer, limit=20
-        )
+        traceback.print_exception(exc_type, exc_value, exc_tb, file=buffer, limit=20)
         span.set_tag(opentracing.tags.ERROR, True)
         span.log_kv(
             {

@@ -8,7 +8,7 @@ class Config:
         'bootstrap.servers': 'localhost:9092',
         'group.id': 1,
         'schema.registry.url': '1.1.1.1',
-        'topics': 'a'
+        'topics': 'a',
     }
 
     KAFKA_REPOSITORY_LOADER_CONFIG = {
@@ -18,7 +18,7 @@ class Config:
             'bootstrap.servers': 'localhost:9092',
             'group.id': 1,
             'schema.registry.url': '1.1.1.1',
-        }
+        },
     }
 
     KAFKA_PRODUCER_CONFIG = {

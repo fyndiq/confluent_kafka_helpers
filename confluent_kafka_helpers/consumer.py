@@ -6,12 +6,8 @@ import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
-from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_stats_cb, get_callback
-)
-from confluent_kafka_helpers.exceptions import (
-    EndOfPartition, KafkaTransportError
-)
+from confluent_kafka_helpers.callbacks import default_error_cb, default_stats_cb, get_callback
+from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.tracing import tags, tracer
@@ -54,9 +50,7 @@ class AvroConsumer:
 
     DEFAULT_CONFIG = {
         'client.id': socket.gethostname(),
-        'default.topic.config': {
-            'auto.offset.reset': 'earliest'
-        },
+        'default.topic.config': {'auto.offset.reset': 'earliest'},
         'enable.auto.commit': False,
         'fetch.wait.max.ms': 1000,
         'fetch.min.bytes': 10000,
@@ -65,20 +59,18 @@ class AvroConsumer:
     }
 
     def __init__(
-        self, config, get_message: Callable = get_message,
-        error_handler: Callable = default_error_handler
+        self,
+        config,
+        get_message: Callable = get_message,
+        error_handler: Callable = default_error_handler,
     ) -> None:
         stop_on_eof = config.pop('stop_on_eof', False)
         poll_timeout = config.pop('poll_timeout', 0.1)
         self.non_blocking = config.pop('non_blocking', False)
 
         self.config = {**self.DEFAULT_CONFIG, **config}
-        self.config['error_cb'] = get_callback(
-            config.pop('error_cb', None), default_error_cb
-        )
-        self.config['stats_cb'] = get_callback(
-            config.pop('stats_cb', None), default_stats_cb
-        )
+        self.config['error_cb'] = get_callback(config.pop('error_cb', None), default_error_cb)
+        self.config['stats_cb'] = get_callback(config.pop('stats_cb', None), default_stats_cb)
         self.topics = self._get_topics(self.config)
 
         logger.info("Initializing consumer", config=self.config)
@@ -88,8 +80,11 @@ class AvroConsumer:
         self._generator = self._message_generator()
 
         self._get_message = partial(
-            get_message, consumer=self.consumer, error_handler=error_handler,
-            timeout=poll_timeout, stop_on_eof=stop_on_eof
+            get_message,
+            consumer=self.consumer,
+            error_handler=error_handler,
+            timeout=poll_timeout,
+            stop_on_eof=stop_on_eof,
         )
 
     def __getattr__(self, name):
@@ -130,16 +125,13 @@ class AvroConsumer:
             message = Message(message)
 
             with tracer.extract_headers_and_start_span(
-                operation_name='kafka.consumer.consume',
-                headers=message._meta.headers
+                operation_name='kafka.consumer.consume', headers=message._meta.headers
             ) as span:
                 span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_CONSUMER)
                 span.set_tag(tags.MESSAGE_BUS_DESTINATION, message._meta.topic)
                 span.set_tag(tags.MESSAGE_BUS_KEY, message._meta.key)
                 span.set_tag(tags.MESSAGE_BUS_OFFSET, message._meta.offset)
-                span.set_tag(
-                    tags.MESSAGE_BUS_PARTITION, message._meta.partition
-                )
+                span.set_tag(tags.MESSAGE_BUS_PARTITION, message._meta.partition)
                 yield message
 
     def _get_topics(self, config):
@@ -171,6 +163,7 @@ class AvroLazyConsumer(ConfluentAvroConsumer):
     We use this approach, because we want to check the key messages before
     decoding the message, this will avoid performance issues.
     """
+
     def poll(self, timeout=None):
         if timeout is None:
             timeout = -1

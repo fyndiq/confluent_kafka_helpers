@@ -2,7 +2,9 @@ import json
 
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.metrics.statistics import (
-    send_broker_stats, send_cgrp_stats, send_top_level_stats
+    send_broker_stats,
+    send_cgrp_stats,
+    send_top_level_stats,
 )
 
 

@@ -15,9 +15,7 @@ def retry_exception(exceptions, retries=3):
                     return func(*args, **kwargs)
                 except Exception as exc:
                     if any([isinstance(exc, e) for e in exceptions]):
-                        logger.warning(
-                            "Retrying exception", exc=exc, retry=retry_count
-                        )
+                        logger.warning("Retrying exception", exc=exc, retry=retry_count)
                         retry_count += 1
                         if retry_count < retries:
                             continue

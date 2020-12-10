@@ -7,6 +7,7 @@ class StatsdNullClient:
     """
     No-op datadog statsd client implementing the null object pattern.
     """
+
     __call__ = __getattr__ = lambda self, *_, **__: self
 
     def timed(self, *args, **kwargs):
@@ -31,6 +32,7 @@ try:
         statsd = StatsdNullClient()  # type: ignore
     else:
         import datadog
+
         statsd = datadog.statsd
 except ModuleNotFoundError:
     statsd = StatsdNullClient()  # type: ignore
