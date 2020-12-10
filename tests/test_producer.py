@@ -53,7 +53,7 @@ def test_avro_producer_produce_default_topic(avro_producer):
     mock_avro_producer_produce.assert_called_once_with(
         topic=default_topic, key=key,
         value=avro_producer.value_serializer(value), key_schema=key_schema,
-        value_schema=value_schema
+        value_schema=value_schema, headers={}
     )
 
 
@@ -70,7 +70,7 @@ def test_avro_producer_produce_specific_topic(avro_producer):
     topic, key_schema, value_schema = avro_producer.topic_schemas[topic]
     mock_avro_producer_produce.assert_called_once_with(
         topic=topic, key=key, value=avro_producer.value_serializer(value),
-        key_schema=key_schema, value_schema=value_schema
+        key_schema=key_schema, value_schema=value_schema, headers={}
     )
 
 
