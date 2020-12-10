@@ -1,5 +1,6 @@
 codecov
 flake8
+flake8-black
 flake8-eradicate
 flake8-isort
 ipdb

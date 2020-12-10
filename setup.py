@@ -16,8 +16,6 @@ setup(
         'fastavro>=0.18.0,<=1.0.0.post1',
         'avro-python3>=1.8.2,<=1.10.0',
     ],
-    extras_require={
-        'opentracing': 'opentracing>=2.4.0'
-    },
+    extras_require={'opentracing': 'opentracing>=2.4.0'},
     zip_safe=False,
 )

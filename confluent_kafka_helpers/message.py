@@ -2,9 +2,7 @@ import datetime
 
 
 def kafka_timestamp_to_datetime(timestamp):
-    return datetime.datetime.utcfromtimestamp(
-        timestamp / 1000.0
-    ) if timestamp is not None else None
+    return datetime.datetime.utcfromtimestamp(timestamp / 1000.0) if timestamp is not None else None
 
 
 def extract_timestamp_from_message(kafka_message):
@@ -31,13 +29,7 @@ class Message:
         self._meta = MessageMetadata(kafka_message)
 
     def __repr__(self):
-        return (
-            f"Message("
-            f"value={self.value}, "
-            f"_raw={self._raw}, "
-            f"_meta={self._meta}"
-            f")"
-        )
+        return f"Message(" f"value={self.value}, " f"_raw={self._raw}, " f"_meta={self._meta}" f")"
 
     def __bool__(self):
         return True if self.value else False

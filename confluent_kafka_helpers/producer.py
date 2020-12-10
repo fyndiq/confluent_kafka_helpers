@@ -5,11 +5,12 @@ import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
 
 from confluent_kafka_helpers.callbacks import (
-    default_error_cb, default_on_delivery_cb, default_stats_cb, get_callback
+    default_error_cb,
+    default_on_delivery_cb,
+    default_stats_cb,
+    get_callback,
 )
-from confluent_kafka_helpers.schema_registry import (
-    AvroSchemaRegistry, SchemaNotFound
-)
+from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
 from confluent_kafka_helpers.tracing import tags, tracer
 
 logger = structlog.get_logger(__name__)
@@ -20,11 +21,11 @@ class TopicNotRegistered(Exception):
     Raised when someone tries to produce with a topic that
     hasn't been registered in the 'topics' configuration.
     """
+
     pass
 
 
 class AvroProducer(ConfluentAvroProducer):
-
     DEFAULT_CONFIG = {
         'client.id': socket.gethostname(),
         'log.connection.close': False,
@@ -33,19 +34,19 @@ class AvroProducer(ConfluentAvroProducer):
         'linger.ms': 1000,
     }
 
-    def __init__(self, config, value_serializer=None,
-                 schema_registry=AvroSchemaRegistry,
-                 get_callback=get_callback):  # yapf: disable
+    def __init__(
+        self,
+        config,
+        value_serializer=None,
+        schema_registry=AvroSchemaRegistry,
+        get_callback=get_callback,
+    ):
         config = {**self.DEFAULT_CONFIG, **config}
         config['on_delivery'] = get_callback(
             config.pop('on_delivery', None), default_on_delivery_cb
         )
-        config['error_cb'] = get_callback(
-            config.pop('error_cb', None), default_error_cb
-        )
-        config['stats_cb'] = get_callback(
-            config.pop('stats_cb', None), default_stats_cb
-        )
+        config['error_cb'] = get_callback(config.pop('error_cb', None), default_error_cb)
+        config['stats_cb'] = get_callback(config.pop('stats_cb', None), default_stats_cb)
 
         schema_registry_url = config['schema.registry.url']
         self.schema_registry = schema_registry(schema_registry_url)
@@ -107,10 +108,7 @@ class AvroProducer(ConfluentAvroProducer):
         if self.value_serializer:
             value = self.value_serializer(value)
 
-        logger.info(
-            "Producing message", topic=topic, key=key, value=value,
-            headers=headers
-        )
+        logger.info("Producing message", topic=topic, key=key, value=value, headers=headers)
         with tracer.inject_headers_and_start_span(
             operation_name='kafka.producer.produce', headers=headers
         ) as span:
@@ -118,6 +116,11 @@ class AvroProducer(ConfluentAvroProducer):
             span.set_tag(tags.MESSAGE_BUS_DESTINATION, topic)
             span.set_tag(tags.MESSAGE_BUS_KEY, key)
             super().produce(
-                topic=topic, key=key, value=value, key_schema=key_schema,
-                value_schema=value_schema, headers=headers, **kwargs
+                topic=topic,
+                key=key,
+                value=value,
+                key_schema=key_schema,
+                value_schema=value_schema,
+                headers=headers,
+                **kwargs,
             )
