@@ -1,3 +1,4 @@
+from contextlib import ExitStack
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -9,43 +10,30 @@ from confluent_kafka_helpers.exceptions import (
     EndOfPartition, KafkaTransportError
 )
 
-from tests import config, conftest
+from tests import config
 from tests.kafka import KafkaError
 
-mock_avro_consumer = conftest.ConfluentAvroConsumerMock(
-    name='ConfluentAvroConsumerMock'
-)
-mock_avro_schema_registry = MagicMock()
-mock_confluent_avro_consumer = conftest.mock_confluent_avro_consumer
-mock_topic_partition = MagicMock()
-mock_topic_partition.return_value = 1
-mock_partitioner = MagicMock()
-mock_partitioner.return_value = 1
 
-
-@pytest.fixture(scope='function')
-@patch('confluent_kafka_helpers.loader.AvroLazyConsumer', mock_avro_consumer)
-@patch(
-    'confluent_kafka_helpers.loader.AvroSchemaRegistry',
-    mock_avro_schema_registry()
-)
-def avro_message_loader(avro_consumer):
+@pytest.fixture
+def avro_message_loader(confluent_avro_consumer, avro_schema_registry):
     loader_config = config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
-    return loader.AvroMessageLoader(loader_config)
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                'confluent_kafka_helpers.loader.AvroLazyConsumer',
+                confluent_avro_consumer
+            )
+        )
+        yield loader.AvroMessageLoader(loader_config)
 
 
-def test_avro_message_loader_init(avro_message_loader):
-    """
-    Tests AvroMessageLoader.init function
-
-    Args:
-        avro_message_loader: A test fixture which is a AvroMessageLoader
-            with dependencies mocked away
-    """
+def test_avro_message_loader_init(
+    confluent_avro_consumer, avro_message_loader, avro_schema_registry
+):
     assert avro_message_loader.topic == 'a'
     assert avro_message_loader.num_partitions == 10
-    assert mock_avro_consumer.call_count == 1
-    assert mock_avro_schema_registry.call_count == 1
+    assert confluent_avro_consumer.call_count == 1
+    assert avro_schema_registry.call_count == 1
 
 
 @pytest.mark.parametrize(
@@ -60,20 +48,16 @@ def test_default_partitioner(key, num_partitions, expected_response):
     assert expected_response == response
 
 
-@patch('confluent_kafka_helpers.loader.TopicPartition', mock_topic_partition)
-def test_avro_message_loader_load(avro_message_loader):
-    message = conftest.PollReturnMock()
-    conftest.mock_confluent_avro_consumer.poll.side_effect = [
-        message, EndOfPartition
-    ]
+def test_avro_message_loader_load(
+    confluent_message, confluent_avro_consumer, avro_message_loader
+):
+    partitioner = MagicMock(return_value=1)
     avro_message_loader.key_serializer = lambda arg: arg
-
-    messages = list(
-        avro_message_loader.load(key=1, partitioner=mock_partitioner)
-    )
-
-    assert len(messages) == 1
-    assert messages[0].value == b'foobar'
+    message_generator = avro_message_loader.load(key=1, partitioner=partitioner)
+    message = next(message_generator)
+    assert message.value == b'foobar'
+    with pytest.raises(RuntimeError):
+        message = next(message_generator)
 
 
 class TestFindDuplicatedMessages:
@@ -105,11 +89,12 @@ class TestErrorHandler:
         with pytest.raises(KafkaTransportError):
             loader.default_error_handler(error)
 
-    @pytest.mark.parametrize('code', [
-        (ConfluentKafkaError._ALL_BROKERS_DOWN),
-        (ConfluentKafkaError._NO_OFFSET),
-        (ConfluentKafkaError._TIMED_OUT)
-    ])
+    @pytest.mark.parametrize(
+        'code', [
+            (ConfluentKafkaError._ALL_BROKERS_DOWN),
+            (ConfluentKafkaError._NO_OFFSET), (ConfluentKafkaError._TIMED_OUT)
+        ]
+    )
     def test_raises_kafkaexception_on_other_errors(self, code):
         error = KafkaError(_code=code)
         with pytest.raises(KafkaException):

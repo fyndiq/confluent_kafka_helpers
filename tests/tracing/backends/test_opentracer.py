@@ -9,13 +9,8 @@ from confluent_kafka_helpers.tracing.backends.opentracer import (
 
 
 @pytest.fixture
-def global_tracer():
-    return Mock()
-
-
-@pytest.fixture
-def opentracer(global_tracer):
-    return OpenTracerBackend(tracer=global_tracer)
+def opentracer():
+    return OpenTracerBackend(tracer=Mock())
 
 
 def test_start_active_span_pass_correct_kwargs_and_finish_span(opentracer):
