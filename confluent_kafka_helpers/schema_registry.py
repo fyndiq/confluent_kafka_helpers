@@ -7,6 +7,8 @@ from confluent_kafka.avro.cached_schema_registry_client import (
 )
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 
+from confluent_kafka_helpers.tracing import tracer
+
 logger = structlog.get_logger(__name__)
 
 
@@ -22,9 +24,13 @@ class AvroSchemaRegistry:
         self.serializer = serializer(self.client)
 
     def get_latest_schema(self, subject):
-        schema_id, schema, version = self.client.get_latest_schema(subject)
-        if not schema:
-            raise SchemaNotFound(f"Schema for subject {subject} not found")
+        with tracer.start_span(
+            operation_name='kafka.producer.get_latest_schema'
+        ) as span:
+            span.set_tag('schema_registry.subject', subject)
+            schema_id, schema, version = self.client.get_latest_schema(subject)
+            if not schema:
+                raise SchemaNotFound(f"Schema for subject {subject} not found")
         return schema
 
     @lru_cache(maxsize=None)

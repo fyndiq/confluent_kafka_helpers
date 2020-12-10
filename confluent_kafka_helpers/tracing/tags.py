@@ -1,22 +1,11 @@
-import opentracing
+COMPONENT = 'component'
+PEER_SERVICE = 'peer.service'
 
+SPAN_KIND = 'span.kind'
+SPAN_KIND_CONSUMER = 'consumer'
+SPAN_KIND_PRODUCER = 'producer'
 
-def get_producer_tags(topic: str, key: str) -> dict:
-    return {
-        opentracing.tags.SPAN_KIND: opentracing.tags.SPAN_KIND_PRODUCER,
-        opentracing.tags.COMPONENT: 'messagebus',
-        opentracing.tags.PEER_SERVICE: 'kafka',
-        opentracing.tags.MESSAGE_BUS_DESTINATION: topic,
-        'message_bus.key': key,
-    }
-
-
-def get_consumer_tags(topic: str, key: str) -> dict:
-    return {
-        opentracing.tags.SPAN_KIND: opentracing.tags.
-        SPAN_KIND_CONSUMER,
-        opentracing.tags.COMPONENT: 'messagebus',
-        opentracing.tags.PEER_SERVICE: 'kafka',
-        opentracing.tags.MESSAGE_BUS_DESTINATION: topic,
-        'message_bus.key': key
-    }
+MESSAGE_BUS_DESTINATION = 'message_bus.destination'
+MESSAGE_BUS_KEY = 'message_bus.key'
+MESSAGE_BUS_PARTITION = 'message_bus.partition'
+MESSAGE_BUS_OFFSET = 'message_bus.offset'

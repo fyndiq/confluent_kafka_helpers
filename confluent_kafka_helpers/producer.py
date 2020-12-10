@@ -107,13 +107,17 @@ class AvroProducer(ConfluentAvroProducer):
         if self.value_serializer:
             value = self.value_serializer(value)
 
-        span = tracer.start_span(
-            'kafka.produce', tags=tags.get_producer_tags(topic=topic, key=key)
+        logger.info(
+            "Producing message", topic=topic, key=key, value=value,
+            headers=headers
         )
-        tracer.inject(span.context, carrier=headers)
-        logger.info("Producing message", topic=topic, key=key, value=value)
-        super().produce(
-            topic=topic, key=key, value=value, key_schema=key_schema,
-            value_schema=value_schema, headers=headers, **kwargs
-        )
-        span.finish()
+        with tracer.inject_headers_and_start_span(
+            operation_name='kafka.producer.produce', headers=headers
+        ) as span:
+            span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_PRODUCER)
+            span.set_tag(tags.MESSAGE_BUS_DESTINATION, topic)
+            span.set_tag(tags.MESSAGE_BUS_KEY, key)
+            super().produce(
+                topic=topic, key=key, value=value, key_schema=key_schema,
+                value_schema=value_schema, headers=headers, **kwargs
+            )

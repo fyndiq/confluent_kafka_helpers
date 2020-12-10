@@ -1,6 +1,3 @@
-import io
-import traceback
-import opentracing
 import socket
 from functools import partial
 from typing import Callable
@@ -17,6 +14,7 @@ from confluent_kafka_helpers.exceptions import (
 )
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
+from confluent_kafka_helpers.tracing import tags, tracer
 from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
@@ -93,7 +91,6 @@ class AvroConsumer:
             get_message, consumer=self.consumer, error_handler=error_handler,
             timeout=poll_timeout, stop_on_eof=stop_on_eof
         )
-        self.tracer = opentracing.global_tracer()
 
     def __getattr__(self, name):
         return getattr(self.consumer, name)
@@ -121,27 +118,6 @@ class AvroConsumer:
         logger.info("Closing consumer")
         self.consumer.close()
 
-        span = self.tracer.active_span
-        if not span:
-            return
-
-        buff = io.StringIO()
-        traceback.print_exception(
-            exc_type, exc_value, exc_tb, file=buff, limit=20
-        )
-        tb = buff.getvalue()
-
-        span.set_tag(opentracing.tags.ERROR, True)
-        span.log_kv(
-            {
-                "event": opentracing.tags.ERROR,
-                "error.kind": exc_type.__name__,
-                "error.object": exc_value,
-                "stack": tb,
-            }
-        )
-        span.finish()
-
     def _message_generator(self):
         while True:
             message = self._get_message()
@@ -149,40 +125,23 @@ class AvroConsumer:
                 if self.non_blocking:
                     yield None
                 continue
-            headers = message.headers()
-            if headers:
-                headers = {
-                    k: v.decode('utf-8')
-                    for k, v in dict(headers).items()
-                }
-                tags = {
-                    opentracing.tags.SPAN_KIND: opentracing.tags.
-                    SPAN_KIND_CONSUMER,
-                    opentracing.tags.COMPONENT: 'messagebus',
-                    opentracing.tags.PEER_SERVICE: 'kafka',
-                    opentracing.tags.MESSAGE_BUS_DESTINATION: message.topic(),
-                    'message_bus.key': message.key(),
-                }
-                operation_name = 'kafka.consume'
-                try:
-                    parent_context = self.tracer.extract(
-                        opentracing.Format.TEXT_MAP, headers
-                    )
-                except (
-                    opentracing.InvalidCarrierException,
-                    opentracing.SpanContextCorruptedException,
-                ):
-                    span = self.tracer.start_active_span(operation_name).span
-                else:
-                    span = self.tracer.start_span(
-                        operation_name,
-                        references=[opentracing.follows_from(parent_context)],
-                        tags=tags
-                    )
+
             statsd.increment(f'{base_metric}.consumer.message.count.total')
-            yield Message(message)
-            if span:
-                span.finish()
+            message = Message(message)
+
+            breakpoint()
+            with tracer.extract_headers_and_start_span(
+                operation_name='kafka.consumer.consume',
+                headers=message._meta.headers
+            ) as span:
+                span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_CONSUMER)
+                span.set_tag(tags.MESSAGE_BUS_DESTINATION, message._meta.topic)
+                span.set_tag(tags.MESSAGE_BUS_KEY, message._meta.key)
+                span.set_tag(tags.MESSAGE_BUS_OFFSET, message._meta.offset)
+                span.set_tag(
+                    tags.MESSAGE_BUS_PARTITION, message._meta.partition
+                )
+                yield message
 
     def _get_topics(self, config):
         topics = config.pop('topics', None)
@@ -198,14 +157,9 @@ class AvroConsumer:
         return self.config.get('enable.auto.commit', True)
 
     def commit(self, *args, **kwargs):
-        tags = {
-            opentracing.tags.SPAN_KIND: opentracing.tags.SPAN_KIND_CONSUMER,
-            opentracing.tags.COMPONENT: 'messagebus',
-            opentracing.tags.PEER_SERVICE: 'kafka',
-        }
-        span = self.tracer.start_span('kafka.commit', tags=tags)
-        self.consumer.commit(*args, **kwargs)
-        span.finish()
+        with tracer.start_span(operation_name='kafka.consumer.commit') as span:
+            span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_CONSUMER)
+            self.consumer.commit(*args, **kwargs)
 
 
 class AvroLazyConsumer(ConfluentAvroConsumer):
