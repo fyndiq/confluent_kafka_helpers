@@ -1,4 +1,5 @@
-from unittest.mock import MagicMock, patch
+from contextlib import ExitStack
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -6,43 +7,47 @@ from confluent_kafka_helpers import producer
 
 from tests import config
 
-mock_avro_schema_registry = MagicMock()
-mock_confluent_avro_producer_init = MagicMock()
-mock_avro_producer_produce = MagicMock()
+
+@pytest.fixture
+def confluent_avro_producer():
+    producer = MagicMock()
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch(
+                'confluent_kafka_helpers.producer.ConfluentAvroProducer.__init__',  # noqa
+                MagicMock
+            )
+        )
+        stack.enter_context(
+            patch(
+                'confluent_kafka_helpers.producer.ConfluentAvroProducer.produce',  # noqa
+                producer
+            )
+        )
+        yield producer
 
 
-def teardown_function(function):
-    mock_avro_producer_produce.reset_mock()
-
-
-@pytest.fixture(scope='module')
-@patch(
-    'confluent_kafka_helpers.producer.ConfluentAvroProducer.__init__',
-    mock_confluent_avro_producer_init
-)
+@pytest.fixture
 @patch('confluent_kafka_helpers.producer.AvroProducer._close', MagicMock())
-def avro_producer():
-    producer_config = config.Config.KAFKA_REPOSITORY_PRODUCER_CONFIG
+def avro_producer(confluent_avro_producer, avro_schema_registry):
+    producer_config = config.Config.KAFKA_PRODUCER_CONFIG
     return producer.AvroProducer(
-        producer_config, schema_registry=mock_avro_schema_registry
+        producer_config, schema_registry=avro_schema_registry
     )
 
 
-def test_avro_producer_init(avro_producer):
-    producer_config = config.Config.KAFKA_REPOSITORY_PRODUCER_CONFIG
+def test_avro_producer_init(avro_producer, avro_schema_registry):
+    producer_config = config.Config.KAFKA_PRODUCER_CONFIG
     assert avro_producer.default_topic == 'c'
     assert avro_producer.value_serializer == config.to_message_from_dto
-    mock_avro_schema_registry.assert_called_once_with(
+    avro_schema_registry.assert_called_once_with(
         producer_config['schema.registry.url']
     )
-    assert mock_confluent_avro_producer_init.call_count == 1
 
 
-@patch(
-    'confluent_kafka_helpers.producer.ConfluentAvroProducer.produce',
-    mock_avro_producer_produce
-)
-def test_avro_producer_produce_default_topic(avro_producer):
+def test_avro_producer_produce_default_topic(
+    confluent_avro_producer, avro_producer
+):
     key = 'a'
     value = '1'
     topic = 'c'
@@ -50,28 +55,48 @@ def test_avro_producer_produce_default_topic(avro_producer):
 
     _, key_schema, value_schema = avro_producer.topic_schemas[topic]
     default_topic = avro_producer.default_topic
-    mock_avro_producer_produce.assert_called_once_with(
+    confluent_avro_producer.assert_called_once_with(
         topic=default_topic, key=key,
         value=avro_producer.value_serializer(value), key_schema=key_schema,
-        value_schema=value_schema
+        value_schema=value_schema, headers={}
     )
 
 
-@patch(
-    'confluent_kafka_helpers.producer.ConfluentAvroProducer.produce',
-    mock_avro_producer_produce
-)
-def test_avro_producer_produce_specific_topic(avro_producer):
+def test_avro_producer_produce_specific_topic(
+    confluent_avro_producer, avro_producer
+):
     key = 'a'
     value = '1'
     topic = 'a'
     avro_producer.produce(key=key, value=value, topic=topic)
 
     topic, key_schema, value_schema = avro_producer.topic_schemas[topic]
-    mock_avro_producer_produce.assert_called_once_with(
+    confluent_avro_producer.assert_called_once_with(
         topic=topic, key=key, value=avro_producer.value_serializer(value),
-        key_schema=key_schema, value_schema=value_schema
+        key_schema=key_schema, value_schema=value_schema, headers={}
     )
+
+
+@patch('confluent_kafka_helpers.producer.tracer')
+def test_avro_producer_adds_tracing(tracer, avro_producer):
+    avro_producer.produce(key='a', value='1', topic='a')
+    expected_calls = [
+        call.inject_headers_and_start_span(
+            operation_name='kafka.producer.produce', headers={}
+        ),
+        call.inject_headers_and_start_span().__enter__(),
+        call.inject_headers_and_start_span().__enter__().set_tag(
+            'span.kind', 'producer'
+        ),
+        call.inject_headers_and_start_span().__enter__().set_tag(
+            'message_bus.destination', 'a'
+        ),
+        call.inject_headers_and_start_span().__enter__().set_tag(
+            'message_bus.key', 'a'
+        ),
+        call.inject_headers_and_start_span().__exit__(None, None, None)
+    ]
+    tracer.assert_has_calls(expected_calls)
 
 
 def test_get_subject_names(avro_producer):
@@ -83,9 +108,8 @@ def test_get_subject_names(avro_producer):
     assert value_subject_name == (topic_name + '-value')
 
 
-def test_get_topic_schemas(avro_producer):
-    mock_avro_schema_registry.return_value.\
-        get_latest_schema.side_effect = ['1', '2']
+def test_get_topic_schemas(avro_producer, avro_schema_registry):
+    avro_schema_registry.return_value.get_latest_schema.side_effect = ['1', '2']
     topic_list = ['a']
     topic_schemas = avro_producer._get_topic_schemas(topic_list)
     topic, key_schema, value_schema = topic_schemas['a']

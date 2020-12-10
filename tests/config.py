@@ -21,7 +21,7 @@ class Config:
         }
     }
 
-    KAFKA_REPOSITORY_PRODUCER_CONFIG = {
+    KAFKA_PRODUCER_CONFIG = {
         'bootstrap.servers': 'localhost:9092',
         'schema.registry.url': 'a',
         'topics': ['c', 'a'],

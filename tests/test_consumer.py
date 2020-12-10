@@ -1,4 +1,4 @@
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock, call, patch
 
 import pytest
 from confluent_kafka import KafkaError as ConfluentKafkaError
@@ -9,23 +9,47 @@ from confluent_kafka_helpers.exceptions import (
     EndOfPartition, KafkaTransportError
 )
 
-from tests import conftest
 from tests.kafka import KafkaError, KafkaMessage
 
-mock_confluent_avro_consumer = conftest.mock_confluent_avro_consumer
 
+class TestAvroConsumer:
+    def test_init(self, avro_consumer, confluent_avro_consumer):
+        assert avro_consumer.topics == ['a']
+        confluent_avro_consumer.subscribe.assert_called_once_with(['a'])
+        confluent_avro_consumer.assert_called_once()
 
-def test_avro_consumer_init(avro_consumer):
-    assert avro_consumer.topics == ['a']
-    mock_confluent_avro_consumer.subscribe.assert_called_once_with(['a'])
-    mock_confluent_avro_consumer.assert_called_once()
+    def test_consume_messages(self, avro_consumer):
+        with pytest.raises(RuntimeError):
+            for message in avro_consumer:
+                assert message.value == b'foobar'
 
-
-@patch('confluent_kafka.KafkaException', MagicMock())
-def test_avro_consumer(avro_consumer):
-    for message in avro_consumer:
-        assert message.value == b'foobar'
-        break
+    @patch('confluent_kafka_helpers.consumer.tracer')
+    def test_consume_messages_adds_tracing(self, tracer, avro_consumer):
+        with pytest.raises(RuntimeError):
+            for message in avro_consumer:
+                expected_calls = [
+                    call.extract_headers_and_start_span(
+                        operation_name='kafka.consumer.consume',
+                        headers={'foo': 'bar'}
+                    ),
+                    call.extract_headers_and_start_span().__enter__(),
+                    call.extract_headers_and_start_span().__enter__().set_tag(
+                        'span.kind', 'consumer'
+                    ),
+                    call.extract_headers_and_start_span().__enter__().set_tag(
+                        'message_bus.destination', 'test'
+                    ),
+                    call.extract_headers_and_start_span().__enter__().set_tag(
+                        'message_bus.key', 1
+                    ),
+                    call.extract_headers_and_start_span().__enter__().set_tag(
+                        'message_bus.offset', 0
+                    ),
+                    call.extract_headers_and_start_span().__enter__().set_tag(
+                        'message_bus.partition', 1
+                    )
+                ]
+                tracer.assert_has_calls(expected_calls)
 
 
 class TestGetMessage:
@@ -57,11 +81,12 @@ class TestErrorHandler:
         with pytest.raises(EndOfPartition):
             default_error_handler(error)
 
-    @pytest.mark.parametrize('code', [
-        (ConfluentKafkaError._ALL_BROKERS_DOWN),
-        (ConfluentKafkaError._NO_OFFSET),
-        (ConfluentKafkaError._TIMED_OUT)
-    ])
+    @pytest.mark.parametrize(
+        'code', [
+            (ConfluentKafkaError._ALL_BROKERS_DOWN),
+            (ConfluentKafkaError._NO_OFFSET), (ConfluentKafkaError._TIMED_OUT)
+        ]
+    )
     def test_raises_kafkaexception_on_other_errors(self, code):
         error = KafkaError(_code=code)
         with pytest.raises(KafkaException):

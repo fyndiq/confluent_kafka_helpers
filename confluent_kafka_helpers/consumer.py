@@ -14,6 +14,7 @@ from confluent_kafka_helpers.exceptions import (
 )
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
+from confluent_kafka_helpers.tracing import tags, tracer
 from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
@@ -106,7 +107,7 @@ class AvroConsumer:
     def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_value, tb):
+    def __exit__(self, exc_type, exc_value, exc_tb):
         # the only reason a consumer exits is when an
         # exception is raised.
         #
@@ -126,7 +127,20 @@ class AvroConsumer:
                 continue
 
             statsd.increment(f'{base_metric}.consumer.message.count.total')
-            yield Message(message)
+            message = Message(message)
+
+            with tracer.extract_headers_and_start_span(
+                operation_name='kafka.consumer.consume',
+                headers=message._meta.headers
+            ) as span:
+                span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_CONSUMER)
+                span.set_tag(tags.MESSAGE_BUS_DESTINATION, message._meta.topic)
+                span.set_tag(tags.MESSAGE_BUS_KEY, message._meta.key)
+                span.set_tag(tags.MESSAGE_BUS_OFFSET, message._meta.offset)
+                span.set_tag(
+                    tags.MESSAGE_BUS_PARTITION, message._meta.partition
+                )
+                yield message
 
     def _get_topics(self, config):
         topics = config.pop('topics', None)
@@ -141,6 +155,11 @@ class AvroConsumer:
     def is_auto_commit(self):
         return self.config.get('enable.auto.commit', True)
 
+    def commit(self, *args, **kwargs):
+        with tracer.start_span(operation_name='kafka.consumer.commit') as span:
+            span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_CONSUMER)
+            self.consumer.commit(*args, **kwargs)
+
 
 class AvroLazyConsumer(ConfluentAvroConsumer):
     """
@@ -152,7 +171,6 @@ class AvroLazyConsumer(ConfluentAvroConsumer):
     We use this approach, because we want to check the key messages before
     decoding the message, this will avoid performance issues.
     """
-
     def poll(self, timeout=None):
         if timeout is None:
             timeout = -1
