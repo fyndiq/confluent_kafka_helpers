@@ -129,7 +129,6 @@ class AvroConsumer:
             statsd.increment(f'{base_metric}.consumer.message.count.total')
             message = Message(message)
 
-            breakpoint()
             with tracer.extract_headers_and_start_span(
                 operation_name='kafka.consumer.consume',
                 headers=message._meta.headers

@@ -15,7 +15,6 @@ DEFAULT_TAGS = {
 
 class OpenTracerBackend:
     def __init__(self, tracer=opentracing.global_tracer):
-        breakpoint()
         self._tracer = tracer()
 
     def __getattr__(self, name):
@@ -48,7 +47,6 @@ class OpenTracerBackend:
             span.finish()
 
     def extract_headers_and_start_span(self, operation_name, headers):
-        breakpoint()
         try:
             parent_context = self._tracer.extract(
                 carrier=headers, format=opentracing.Format.TEXT_MAP
