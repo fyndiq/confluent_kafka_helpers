@@ -44,6 +44,19 @@ class OpenTracerBackend:
             self.log_exception(span=span)
             span.finish()
 
+    @contextlib.contextmanager
+    def inject_headers_and_start_span(self, operation_name, headers):
+        try:
+            with self.start_span(operation_name=operation_name) as span:
+                self._tracer.inject(
+                    span_context=span.context,
+                    carrier=headers,
+                    format=opentracing.Format.TEXT_MAP,
+                )
+                yield span
+        finally:
+            pass
+
     def extract_headers_and_start_span(self, operation_name, headers):
         try:
             parent_context = self._tracer.extract(
@@ -58,15 +71,6 @@ class OpenTracerBackend:
             span = self.start_active_span(
                 operation_name=operation_name, references=[opentracing.follows_from(parent_context)]
             )
-        return span
-
-    def inject_headers_and_start_span(self, operation_name, headers):
-        span = self.start_span(operation_name=operation_name)
-        self._tracer.inject(
-            span_context=self.active_span.context,
-            carrier=headers,
-            format=opentracing.Format.TEXT_MAP,
-        )
         return span
 
     def log_exception(self, span):
