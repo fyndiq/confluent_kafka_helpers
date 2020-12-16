@@ -134,7 +134,7 @@ def test_inject_headers_and_start_span_pass_correct_kwargs(opentracer):
             },
         }
         opentracer._tracer.start_span.assert_called_once_with(**expected_start_span_kwargs)
-        active_span = opentracer._tracer.active_span
+        active_span = opentracer._tracer.start_span.return_value
         expected_inject_kwargs = {
             'span_context': active_span.context,
             'carrier': {'foo': 'bar'},
