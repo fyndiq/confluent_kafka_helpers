@@ -28,21 +28,25 @@ class OpenTracerBackend:
         # Datadog tracer.
         #
         # https://docs.datadoghq.com/tracing/visualization/trace/?tab=spantags
+        scope = None
         try:
             scope = self._tracer.start_active_span(*args, tags=DEFAULT_TAGS, **kwargs)
             yield scope.span
         finally:
-            self.log_exception(span=scope.span)
-            scope.span.finish()
+            if scope:
+                self.log_exception(span=scope.span)
+                scope.span.finish()
 
     @contextlib.contextmanager
     def start_span(self, *args, **kwargs):
+        span = None
         try:
             span = self._tracer.start_span(*args, tags=DEFAULT_TAGS, **kwargs)
             yield span
         finally:
-            self.log_exception(span=span)
-            span.finish()
+            if span:
+                self.log_exception(span=span)
+                span.finish()
 
     @contextlib.contextmanager
     def inject_headers_and_start_span(self, operation_name, headers):
