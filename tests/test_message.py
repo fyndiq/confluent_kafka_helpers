@@ -132,6 +132,14 @@ def test_timestamp_is_not_available():
             {'foo': b'bar'},
             {},
         ),
+        (
+            [('foo', None)],
+            {'foo': None},
+        ),
+        (
+            [('foo', 1)],
+            {'foo': 1},
+        ),
     ],
 )
 def test_headers(headers, expected_headers):
