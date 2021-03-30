@@ -106,7 +106,7 @@ pycodestyle==2.6.0
     # via flake8
 pyflakes==2.2.0
     # via flake8
-pygments==2.7.3
+pygments==2.7.4
     # via
     #   ipython
     #   pdbpp
