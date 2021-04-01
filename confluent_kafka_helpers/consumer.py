@@ -48,6 +48,7 @@ def default_error_handler(kafka_error):
 
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 from confluent_kafka.avro.serializer import SerializerError
+import struct
 class PatchedConflAvroConsumer(ConfluentAvroConsumer):
     def __init__(
         self, config, schema_registry=None, reader_key_schema=None, reader_value_schema=None,
@@ -75,10 +76,10 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
         if not message.error():
             try:
                 if message.value() is not None:
+                    print('VERSION: {}'.format(struct.unpack('>bI', message.value()[:5])))
                     decoded_value = self.topic_serializers[topic].decode_message(
                         message.value(), is_key=False,
                     )
-                    decoded_value = self._serializer.decode_message(message.value(), is_key=False)
                     message.set_value(decoded_value)
                 if message.key() is not None:
                     decoded_key = self._serializer.decode_message(message.key(), is_key=True)
