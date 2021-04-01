@@ -55,13 +55,12 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
     ):
         super().__init__(config, schema_registry=schema_registry)
         schema_registry = self._serializer.registry_client
-        self.topic_serializers = {
-            topic: MessageSerializer(schema_registry, reader_value_schema=schema)
-            for topic, (_, schema) in (
-                (topic, schema_registry.get_latest_schema(f'{topic}-value'))
-                for topic in topics
+        self.topic_serializers = {}
+        for topic in topics:
+            schema_id, schema = schema_registry.get_latest_schema(f'{topic}-value')
+            self.topic_serializers[topic] = MessageSerializer(
+                schema_registry, reader_value_schema=schema,
             )
-        }
 
     def poll(self, timeout=None):
         if timeout is None:
