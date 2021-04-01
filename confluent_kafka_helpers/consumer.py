@@ -47,48 +47,19 @@ def default_error_handler(kafka_error):
 
 
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
-class SerializerProxy:
-    #def __init__(self, registry_client, reader_key_schema=None, reader_value_schema=None):
-    #    self._fallback_serializer = MessageSerializer(
-    #        registry_client, reader_key_schema, reader_value_schema,
-    #    )
-    #    self.registry_client = registry_client
-    #    self.topic_serializers = {}
-
-    def __init__(self, consumer):
-        self._fallback_serializer = consumer._serializer
-        self.registry_client = self._fallback_serializer.registry_client
-        self.topic_serializers = {}
-        consumer._serializer = self
-
-    def __getattr__(self, name):
-        return getattr(self._fallback_serializer, name)
-
-    def decode_message(self, message, is_key=False):
-        if is_key:
-            return self._fallback_serializer.decode_message(message, is_key=is_key)
-        topic = message.topic()
-        if not topic in self.topic_serializers:
-            schema_id, schema = self.registry_client.get_latest_schema(f'{topic}-value')
-            self.topic_serializers[topic] = MessageSerializer(
-                self.registry_client, reader_value_schema=schema,
-            )
-        serializer = self.topic_serializers[topic]
-        return serializer.decode_message(message, is_key=is_key)
-
+from confluent_kafka.avro.serializer import SerializerError
 class PatchedConflAvroConsumer(ConfluentAvroConsumer):
     def __init__(
         self, config, schema_registry=None, reader_key_schema=None, reader_value_schema=None,
     ):
         super().__init__(config, schema_registry=schema_registry)
         self._fallback_serializer = MessageSerializer(
-            registry_client, reader_key_schema, reader_value_schema,
+            schema_registry, reader_key_schema, reader_value_schema,
         )
-        self.registry_client = registry_client
         self.topic_serializers = {
             topic: MessageSerializer(schema_registry, reader_value_schema=schema)
-            for _, schema in (
-                schema_registry.get_latest_schema(f'{topic}-value')
+            for topic, (_, schema) in (
+                (topic, schema_registry.get_latest_schema(f'{topic}-value'))
                 for topic in config['consumer']['topics']
             )
         }
@@ -120,6 +91,7 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
                     message.offset(),
                     e))
         return message
+
 
 class AvroConsumer:
 
