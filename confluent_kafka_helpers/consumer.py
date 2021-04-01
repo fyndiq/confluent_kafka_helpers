@@ -54,9 +54,7 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
         topics=[],
     ):
         super().__init__(config, schema_registry=schema_registry)
-        self._fallback_serializer = MessageSerializer(
-            schema_registry, reader_key_schema, reader_value_schema,
-        )
+        schema_registry = self._serializer.registry_client
         self.topic_serializers = {
             topic: MessageSerializer(schema_registry, reader_value_schema=schema)
             for topic, (_, schema) in (
