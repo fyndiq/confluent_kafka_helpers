@@ -71,7 +71,6 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
         if message is None:
             return None
 
-        import ipdb; ipdb.set_trace()  # XXX BREAKPOINT
         topic = message.topic()
         if not message.error():
             try:
