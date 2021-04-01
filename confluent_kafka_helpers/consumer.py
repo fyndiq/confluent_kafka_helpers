@@ -65,10 +65,10 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
     def poll(self, timeout=None):
         if timeout is None:
             timeout = -1
-            # Note: this skips over ConfluentAvroConsumer in the MRO on purpose
-            message = super(ConfluentAvroConsumer, self).poll(timeout)
-            if message is None:
-                return None
+        # Note: this skips over ConfluentAvroConsumer in the MRO on purpose
+        message = super(ConfluentAvroConsumer, self).poll(timeout)
+        if message is None:
+            return None
 
         import ipdb; ipdb.set_trace()  # XXX BREAKPOINT
         topic = message.topic()
@@ -80,9 +80,9 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
                     )
                     decoded_value = self._serializer.decode_message(message.value(), is_key=False)
                     message.set_value(decoded_value)
-                    if message.key() is not None:
-                        decoded_key = self._serializer.decode_message(message.key(), is_key=True)
-                        message.set_key(decoded_key)
+                if message.key() is not None:
+                    decoded_key = self._serializer.decode_message(message.key(), is_key=True)
+                    message.set_key(decoded_key)
             except SerializerError as e:
                 raise SerializerError("Message deserialization failed for message at {} [{}] offset {}: {}".format(
                     message.topic(),
