@@ -60,7 +60,7 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
             topic: MessageSerializer(schema_registry, reader_value_schema=schema)
             for topic, (_, schema) in (
                 (topic, schema_registry.get_latest_schema(f'{topic}-value'))
-                for topic in config['consumer']['topics']
+                for topic in config['topics']
             )
         }
 
