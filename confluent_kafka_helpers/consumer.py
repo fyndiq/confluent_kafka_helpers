@@ -76,6 +76,50 @@ class SerializerProxy:
         serializer = self.topic_serializers[topic]
         return serializer.decode_message(message, is_key=is_key)
 
+class PatchedConflAvroConsumer(ConfluentAvroConsumer):
+    def __init__(
+        self, config, schema_registry=None, reader_key_schema=None, reader_value_schema=None,
+    ):
+        super().__init__(config, schema_registry=schema_registry)
+        self._fallback_serializer = MessageSerializer(
+            registry_client, reader_key_schema, reader_value_schema,
+        )
+        self.registry_client = registry_client
+        self.topic_serializers = {
+            topic: MessageSerializer(schema_registry, reader_value_schema=schema)
+            for _, schema in (
+                schema_registry.get_latest_schema(f'{topic}-value')
+                for topic in config['consumer']['topics']
+            )
+        }
+
+    def poll(self, timeout=None):
+        if timeout is None:
+            timeout = -1
+            # Note: this skips over ConfluentAvroConsumer in the MRO on purpose
+            message = super(ConfluentAvroConsumer, self).poll(timeout)
+            if message is None:
+                return None
+
+        topic = message.topic()
+        if not message.error():
+            try:
+                if message.value() is not None:
+                    decoded_value = self.topic_serializers[topic].decode_message(
+                        message.value(), is_key=False,
+                    )
+                    decoded_value = self._serializer.decode_message(message.value(), is_key=False)
+                    message.set_value(decoded_value)
+                    if message.key() is not None:
+                        decoded_key = self._serializer.decode_message(message.key(), is_key=True)
+                        message.set_key(decoded_key)
+            except SerializerError as e:
+                raise SerializerError("Message deserialization failed for message at {} [{}] offset {}: {}".format(
+                    message.topic(),
+                    message.partition(),
+                    message.offset(),
+                    e))
+        return message
 
 class AvroConsumer:
 
@@ -105,8 +149,7 @@ class AvroConsumer:
         self.topics = self._get_topics(self.config)
 
         logger.info("Initializing consumer", config=self.config)
-        self.consumer = ConfluentAvroConsumer(self.config)
-        SerializerProxy(self.consumer)
+        self.consumer = PatchedConflAvroConsumer(self.config)
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()
