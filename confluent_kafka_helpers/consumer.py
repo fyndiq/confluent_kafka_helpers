@@ -56,6 +56,7 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
         super().__init__(config, schema_registry=schema_registry)
         schema_registry = self._serializer.registry_client
         self.topic_serializers = {}
+        import ipdb; ipdb.set_trace()  # XXX BREAKPOINT
         for topic in topics:
             schema_id, schema = schema_registry.get_latest_schema(f'{topic}-value')
             self.topic_serializers[topic] = MessageSerializer(
