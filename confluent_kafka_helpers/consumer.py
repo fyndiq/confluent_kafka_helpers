@@ -51,6 +51,7 @@ from confluent_kafka.avro.serializer import SerializerError
 class PatchedConflAvroConsumer(ConfluentAvroConsumer):
     def __init__(
         self, config, schema_registry=None, reader_key_schema=None, reader_value_schema=None,
+        topics=[],
     ):
         super().__init__(config, schema_registry=schema_registry)
         self._fallback_serializer = MessageSerializer(
@@ -60,7 +61,7 @@ class PatchedConflAvroConsumer(ConfluentAvroConsumer):
             topic: MessageSerializer(schema_registry, reader_value_schema=schema)
             for topic, (_, schema) in (
                 (topic, schema_registry.get_latest_schema(f'{topic}-value'))
-                for topic in config['topics']
+                for topic in topics
             )
         }
 
@@ -121,7 +122,7 @@ class AvroConsumer:
         self.topics = self._get_topics(self.config)
 
         logger.info("Initializing consumer", config=self.config)
-        self.consumer = PatchedConflAvroConsumer(self.config)
+        self.consumer = PatchedConflAvroConsumer(self.config, topics=self.topics)
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()
