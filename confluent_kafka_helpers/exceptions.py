@@ -1,5 +1,5 @@
 class EndOfPartition(Exception):
-    """ We have reached the end of a partition """
+    """We have reached the end of a partition"""
 
 
 class KafkaTransportError(Exception):
