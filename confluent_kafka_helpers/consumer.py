@@ -63,6 +63,7 @@ class AvroConsumer:
         config,
         get_message: Callable = get_message,
         error_handler: Callable = default_error_handler,
+        **kwargs,
     ) -> None:
         stop_on_eof = config.pop('stop_on_eof', False)
         poll_timeout = config.pop('poll_timeout', 0.1)
@@ -74,7 +75,7 @@ class AvroConsumer:
         self.topics = self._get_topics(self.config)
 
         logger.info("Initializing consumer", config=self.config)
-        self.consumer = ConfluentAvroConsumer(self.config)
+        self.consumer = ConfluentAvroConsumer(self.config, **kwargs)
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()

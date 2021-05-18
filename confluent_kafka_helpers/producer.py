@@ -40,6 +40,7 @@ class AvroProducer(ConfluentAvroProducer):
         value_serializer=None,
         schema_registry=AvroSchemaRegistry,
         get_callback=get_callback,
+        **kwargs,
     ):
         config = {**self.DEFAULT_CONFIG, **config}
         config['on_delivery'] = get_callback(
@@ -62,7 +63,7 @@ class AvroProducer(ConfluentAvroProducer):
         logger.info("Initializing producer", config=config)
         atexit.register(self._close)
 
-        super().__init__(config)
+        super().__init__(config, **kwargs)
 
     def _close(self):
         logger.info("Flushing producer")
