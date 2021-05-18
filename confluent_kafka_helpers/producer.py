@@ -29,8 +29,8 @@ class AvroProducer(ConfluentAvroProducer):
     DEFAULT_CONFIG = {
         'client.id': socket.gethostname(),
         'log.connection.close': False,
-        'retries': 5,  # remove in 1.5.2
         'enable.idempotence': True,
+        'max.in.flight': 1,
         'linger.ms': 1000,
     }
 
