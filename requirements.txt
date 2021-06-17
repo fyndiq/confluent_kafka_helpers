@@ -6,8 +6,6 @@
 #
 appdirs==1.4.4
     # via black
-appnope==0.1.2
-    # via ipython
 attrs==21.1.0
     # via
     #   flake8-eradicate
@@ -158,7 +156,7 @@ typed-ast==1.4.3
     # via mypy
 typing-extensions==3.10.0.0
     # via mypy
-urllib3==1.26.4
+urllib3==1.26.5
     # via requests
 wcwidth==0.2.5
     # via prompt-toolkit
