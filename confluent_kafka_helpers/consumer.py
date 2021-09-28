@@ -149,9 +149,7 @@ class AvroConsumer:
         return self.config.get('enable.auto.commit', True)
 
     def commit(self, *args, **kwargs):
-        with tracer.start_span(operation_name='kafka.consumer.commit') as span:
-            span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_CONSUMER)
-            self.consumer.commit(*args, **kwargs)
+        self.consumer.commit(*args, **kwargs)
 
 
 class AvroLazyConsumer(ConfluentAvroConsumer):
