@@ -10,7 +10,6 @@ from confluent_kafka_helpers.callbacks import default_error_cb, default_stats_cb
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
-from confluent_kafka_helpers.tracing import tags, tracer
 from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
@@ -124,16 +123,7 @@ class AvroConsumer:
 
             statsd.increment(f'{base_metric}.consumer.message.count.total')
             message = Message(message)
-
-            with tracer.extract_headers_and_start_span(
-                operation_name='kafka.consumer.consume', headers=message._meta.headers
-            ) as span:
-                span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_CONSUMER)
-                span.set_tag(tags.MESSAGE_BUS_DESTINATION, message._meta.topic)
-                span.set_tag(tags.MESSAGE_BUS_KEY, message._meta.key)
-                span.set_tag(tags.MESSAGE_BUS_OFFSET, message._meta.offset)
-                span.set_tag(tags.MESSAGE_BUS_PARTITION, message._meta.partition)
-                yield message
+            yield message
 
     def _get_topics(self, config):
         topics = config.pop('topics', None)
