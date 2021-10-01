@@ -36,6 +36,7 @@ class OpenTracerBackend:
             if scope:
                 self.log_exception(span=scope.span)
                 scope.span.finish()
+                scope.close()
 
     @contextlib.contextmanager
     def start_span(self, *args, **kwargs):
