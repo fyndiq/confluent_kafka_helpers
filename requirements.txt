@@ -66,7 +66,7 @@ iniconfig==1.1.1
     # via pytest
 ipdb==0.13.9
     # via -r requirements.in
-ipython==8.4.0
+ipython==8.10.0
     # via ipdb
 isort==5.10.1
     # via flake8-isort
@@ -158,21 +158,14 @@ toml==0.10.2
     # via ipdb
 tomli==2.0.1
     # via
-    #   black
-    #   build
-    #   coverage
     #   flake8-black
-    #   mypy
-    #   pep517
     #   pytest
 traitlets==5.3.0
     # via
     #   ipython
     #   matplotlib-inline
 typing-extensions==4.3.0
-    # via
-    #   black
-    #   mypy
+    # via mypy
 urllib3==1.26.11
     # via requests
 wcwidth==0.2.5
