@@ -1,4 +1,5 @@
 # Confluent Kafka helpers
+
 [![build](https://circleci.com/gh/fyndiq/confluent_kafka_helpers/tree/master.svg?style=shield)](https://circleci.com/gh/fyndiq/confluent_kafka_helpers/tree/master)
 [![coverage](https://codecov.io/gh/fyndiq/confluent_kafka_helpers/branch/master/graph/badge.svg)](https://codecov.io/gh/fyndiq/confluent_kafka_helpers)
 [![version](https://img.shields.io/pypi/v/confluent-kafka-helpers.svg)](https://pypi.org/project/confluent-kafka-helpers/)
