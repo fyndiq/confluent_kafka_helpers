@@ -47,7 +47,6 @@ def default_error_handler(kafka_error):
 
 
 class AvroConsumer:
-
     DEFAULT_CONFIG = {
         'client.id': socket.gethostname(),
         'default.topic.config': {'auto.offset.reset': 'earliest'},
