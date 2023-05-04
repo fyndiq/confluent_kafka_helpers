@@ -14,3 +14,4 @@ build
 confluent_kafka_helpers.egg-info
 coverage.xml
 dist
+.undodir
