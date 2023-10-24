@@ -12,7 +12,7 @@ setup(
     setup_requires=['wheel'],
     install_requires=[
         'structlog>=17.2.0',
-        'confluent-kafka[avro,schema-registry]>=1.0,<=1.9',
+        'confluent-kafka[avro,schema-registry]',
     ],
     extras_require={'opentracing': 'opentracing>=2.4.0'},
     zip_safe=False,
