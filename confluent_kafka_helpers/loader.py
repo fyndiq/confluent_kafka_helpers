@@ -126,7 +126,6 @@ class MessageGenerator:
 
 
 class AvroMessageLoader:
-
     DEFAULT_CONFIG = {
         'log.connection.close': False,
         'log.thread.name': False,

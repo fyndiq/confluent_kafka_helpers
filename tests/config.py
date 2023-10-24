@@ -3,7 +3,6 @@ def to_message_from_dto(message):
 
 
 class Config:
-
     KAFKA_CONSUMER_CONFIG = {
         'bootstrap.servers': 'localhost:9092',
         'group.id': 1,
