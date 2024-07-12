@@ -6,6 +6,7 @@ are triggered correctly.
 
 NOTE! Exit functions will not be triggered on SIGKILL, SIGSTOP or os._exit()
 """
+
 import signal
 import sys
 

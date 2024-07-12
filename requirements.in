@@ -1,9 +1,8 @@
-codecov==2.1.9
+pip
 flake8
 flake8-black
 flake8-eradicate
 flake8-isort
-ipdb
 mypy
 pdbpp
 pip-tools
@@ -14,4 +13,4 @@ pytest-mock
 structlog
 
 opentracing>=2.4.0
-confluent-kafka[avro,schema-registry]>=1.0<=1.9
+confluent-kafka[avro,schema-registry]==2.*

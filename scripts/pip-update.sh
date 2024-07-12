@@ -1,2 +1,2 @@
 #!/usr/bin/env bash
-pip-compile -U requirements.in --output-file requirements.txt
+pip-compile --allow-unsafe --resolver=backtracking -U requirements.in --output-file requirements.txt
