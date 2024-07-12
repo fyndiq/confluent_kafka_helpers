@@ -1,6 +1,7 @@
 """
 Test messages are properly turned into a Message object
 """
+
 import datetime
 from unittest.mock import Mock
 
