@@ -11,6 +11,7 @@ pytest-coverage
 pytest-icdiff
 pytest-mock
 structlog
+twine
 
 opentracing>=2.4.0
 confluent-kafka[avro,schema-registry]==2.*
