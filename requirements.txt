@@ -30,7 +30,7 @@ confluent-kafka[avro,schema-registry]==2.5.0
     # via -r requirements.in
 coverage[toml]==7.6.0
     # via pytest-cov
-cryptography==42.0.8
+cryptography==43.0.1
     # via secretstorage
 docutils==0.21.2
     # via readme-renderer
