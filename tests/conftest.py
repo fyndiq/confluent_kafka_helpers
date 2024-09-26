@@ -45,6 +45,7 @@ def confluent_avro_consumer(confluent_message):
 @pytest.fixture
 def avro_consumer(confluent_avro_consumer):
     consumer_config = config.Config.KAFKA_CONSUMER_CONFIG
+    consumer_config["client.id"] = "<client-id>"
     with ExitStack() as stack:
         stack.enter_context(
             patch('confluent_kafka_helpers.consumer.ConfluentAvroConsumer', confluent_avro_consumer)

@@ -1,8 +1,9 @@
-from unittest.mock import Mock, call, patch
+from unittest.mock import ANY, Mock, call, patch
 
 import pytest
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka import KafkaException
+from opentelemetry.trace import SpanKind
 
 from confluent_kafka_helpers.consumer import default_error_handler, get_message
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
@@ -18,33 +19,67 @@ class TestAvroConsumer:
 
     def test_consume_messages(self, avro_consumer):
         with pytest.raises(RuntimeError):
-            for message in avro_consumer:
-                assert message.value == b'foobar'
+            with avro_consumer as consumer:
+                for message in consumer:
+                    assert message.value == b'foobar'
 
     @patch('confluent_kafka_helpers.consumer.tracer')
     def test_consume_messages_adds_tracing(self, tracer, avro_consumer):
         with pytest.raises(RuntimeError):
-            for message in avro_consumer:
-                expected_calls = [
-                    call.extract_headers_and_start_span(
-                        operation_name='kafka.consumer.consume', headers={'foo': 'bar'}
-                    ),
-                    call.extract_headers_and_start_span().__enter__(),
-                    call.extract_headers_and_start_span()
-                    .__enter__()
-                    .set_tag('span.kind', 'consumer'),
-                    call.extract_headers_and_start_span()
-                    .__enter__()
-                    .set_tag('message_bus.destination', 'test'),
-                    call.extract_headers_and_start_span().__enter__().set_tag('message_bus.key', 1),
-                    call.extract_headers_and_start_span()
-                    .__enter__()
-                    .set_tag('message_bus.offset', 0),
-                    call.extract_headers_and_start_span()
-                    .__enter__()
-                    .set_tag('message_bus.partition', 1),
-                ]
-                tracer.assert_has_calls(expected_calls)
+            with avro_consumer as consumer:
+                for message in consumer:
+                    pass
+
+        expected_calls = [
+            call.extract_headers(headers={'foo': 'bar'}),
+            call.extract_links(context=ANY),
+            call.start_span(
+                name='kafka.consume',
+                kind=SpanKind.CONSUMER,
+                resource_name='test',
+                context=ANY,
+                links=ANY,
+            ),
+            call.start_span().__enter__(),
+            call.start_span(name='kafka.create_message'),
+            call.start_span().__enter__(),
+            call.start_span().__exit__(None, None, None),
+            call.start_span().__enter__().set_attribute('messaging.operation.name', 'consume'),
+            call.start_span().__enter__().set_attribute('messaging.operation.type', 'receive'),
+            call.start_span().__enter__().set_attribute('messaging.client.id', '<client-id>'),
+            call.start_span().__enter__().set_attribute('messaging.destination.name', 'test'),
+            call.start_span().__enter__().set_attribute('messaging.consumer.group.name', 1),
+            call.start_span().__enter__().set_attribute('messaging.destination.partition.id', 1),
+            call.start_span().__enter__().set_attribute('messaging.kafka.message.offset', 0),
+            call.start_span().__enter__().set_attribute('messaging.kafka.message.key', 1),
+            call.start_span().__enter__().set_attribute('server.address', 'localhost'),
+            call.start_span().__enter__().set_attribute('server.port', '9092'),
+        ]
+        tracer.assert_has_calls(expected_calls)
+
+    def test_context_manager_close_consumer(self, mocker, avro_consumer):
+        mock_consumer = mocker.spy(avro_consumer, "consumer")
+        with avro_consumer:
+            pass
+        mock_consumer.close.assert_called_once()
+        mock_consumer.reset_mock()
+
+        with pytest.raises(ZeroDivisionError):
+            with avro_consumer:
+                1 / 0
+        mock_consumer.close.assert_called_once()
+
+    def test_context_manager_close_generator(self, mocker, avro_consumer):
+        mock_generator = mocker.spy(avro_consumer, "_generator")
+        with avro_consumer:
+            pass
+        mock_generator.close.assert_called_once()
+        mock_generator.reset_mock()
+
+        with pytest.raises(ZeroDivisionError):
+            with avro_consumer:
+                1 / 0
+        mock_generator.close.assert_called_once()
 
 
 class TestGetMessage:

@@ -3,6 +3,7 @@ import socket
 
 import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
+from opentelemetry.trace import SpanKind
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb,
@@ -11,7 +12,8 @@ from confluent_kafka_helpers.callbacks import (
     get_callback,
 )
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
-from confluent_kafka_helpers.tracing import tags, tracer
+from confluent_kafka_helpers.tracing import attributes as attrs
+from confluent_kafka_helpers.tracing import tracer
 
 logger = structlog.get_logger(__name__)
 
@@ -52,6 +54,9 @@ class AvroProducer(ConfluentAvroProducer):
         schema_registry_url = config['schema.registry.url']
         self.schema_registry = schema_registry(schema_registry_url)
         self.value_serializer = config.pop('value_serializer', value_serializer)
+
+        self.bootstrap_servers = config['bootstrap.servers']
+        self.client_id = config['client.id']
 
         topics = config.pop('topics')
         self.topic_schemas = self._get_topic_schemas(topics)
@@ -107,15 +112,44 @@ class AvroProducer(ConfluentAvroProducer):
             raise TopicNotRegistered(f"Topic {topic} is not registered")
 
         if self.value_serializer:
-            value = self.value_serializer(value)
+            with tracer.start_span(name='kafka.serialize_message') as span:
+                span.set_attribute(
+                    attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_CREATE
+                )
+                value = self.value_serializer(value)
 
-        logger.info("Producing message", topic=topic, key=key, value=value, headers=headers)
-        with tracer.inject_headers_and_start_span(
-            operation_name='kafka.producer.produce', headers=headers
+        message_class = value.get("class") if isinstance(value, dict) else None
+        resource_name = f"{topic}:{message_class}" if message_class else topic
+
+        with tracer.start_span(
+            name='kafka.produce', kind=SpanKind.PRODUCER, resource_name=resource_name
         ) as span:
-            span.set_tag(tags.SPAN_KIND, tags.SPAN_KIND_PRODUCER)
-            span.set_tag(tags.MESSAGE_BUS_DESTINATION, topic)
-            span.set_tag(tags.MESSAGE_BUS_KEY, key)
+            logger.info("Producing message", topic=topic, key=key, value=value, headers=headers)
+            tracer.inject_headers(headers=headers)
+
+            if message_class:
+                span.set_attribute("message.class", message_class)
+
+            span.set_attribute(
+                attrs.MESSAGING_OPERATION_NAME, attrs.MESSAGING_OPERATION_NAME_VALUE_PRODUCE
+            )
+            span.set_attribute(
+                attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_PUBLISH
+            )
+            span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, topic)
+            span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
+
+            is_tombstone = key is not None and value is None
+            span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_TOMBSTONE, is_tombstone)
+
+            if key:
+                span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_KEY, key)
+
+            server_address, *server_port = self.bootstrap_servers.split(":")
+            span.set_attribute(attrs.SERVER_ADDRESS, server_address)
+            if server_port:
+                span.set_attribute(attrs.SERVER_PORT, server_port[0])
+
             super().produce(
                 topic=topic,
                 key=key,
@@ -125,3 +159,12 @@ class AvroProducer(ConfluentAvroProducer):
                 headers=headers,
                 **kwargs,
             )
+
+    def flush(self, *args, **kwargs):
+        with tracer.start_span(name='kafka.flush', kind=SpanKind.PRODUCER):
+            logger.info("Flushing producer")
+            super().flush(*args, **kwargs)
+
+    def poll(self, *args, **kwargs):
+        with tracer.start_span(name='kafka.poll', kind=SpanKind.PRODUCER):
+            super().poll(*args, **kwargs)

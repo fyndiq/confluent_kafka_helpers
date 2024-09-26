@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: ~/build
     docker:
-      - image: fyndiq/python-confluent-kafka:latest
+      - image: cimg/python:3.10
     steps:
       - checkout
       - run:
@@ -11,7 +11,7 @@ jobs:
           command: pip install -r requirements.txt
       - run:
           name: Run unit tests
-          command: make unit-test-ci
+          command: make unit-test
       - store_test_results:
           path: /tmp/test-results
       - run:
