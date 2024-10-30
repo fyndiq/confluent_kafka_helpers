@@ -1,14 +1,14 @@
 unit-test:
 	./scripts/unit-test.sh
 
-unit-test-ci:
-	./scripts/unit-test.sh ci
-
 setup:
 	./scripts/setup.sh
 
 lint:
 	./scripts/lint.sh
+
+build:
+	./scripts/build.sh
 
 publish:
 	./scripts/publish.sh
@@ -18,4 +18,4 @@ pip-update:
 
 test: unit-test lint
 
-.PHONY: test
+.PHONY: test build

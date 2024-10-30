@@ -2,6 +2,7 @@ from contextlib import ExitStack
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+from opentelemetry.trace import SpanKind
 
 from confluent_kafka_helpers import producer
 
@@ -25,6 +26,7 @@ def confluent_avro_producer():
 @patch('confluent_kafka_helpers.producer.AvroProducer._close', MagicMock())
 def avro_producer(confluent_avro_producer, avro_schema_registry):
     producer_config = config.Config.KAFKA_PRODUCER_CONFIG
+    producer_config["client.id"] = "<client-id>"
     return producer.AvroProducer(producer_config, schema_registry=avro_schema_registry)
 
 
@@ -74,12 +76,22 @@ def test_avro_producer_produce_specific_topic(confluent_avro_producer, avro_prod
 def test_avro_producer_adds_tracing(tracer, avro_producer):
     avro_producer.produce(key='a', value='1', topic='a')
     expected_calls = [
-        call.inject_headers_and_start_span(operation_name='kafka.producer.produce', headers={}),
-        call.inject_headers_and_start_span().__enter__(),
-        call.inject_headers_and_start_span().__enter__().set_tag('span.kind', 'producer'),
-        call.inject_headers_and_start_span().__enter__().set_tag('message_bus.destination', 'a'),
-        call.inject_headers_and_start_span().__enter__().set_tag('message_bus.key', 'a'),
-        call.inject_headers_and_start_span().__exit__(None, None, None),
+        call.start_span(name='kafka.serialize_message'),
+        call.start_span().__enter__(),
+        call.start_span().__enter__().set_attribute('messaging.operation.type', 'create'),
+        call.start_span().__exit__(None, None, None),
+        call.start_span(name='kafka.produce', kind=SpanKind.PRODUCER, resource_name='a'),
+        call.start_span().__enter__(),
+        call.inject_headers(headers={}),
+        call.start_span().__enter__().set_attribute('messaging.operation.name', 'produce'),
+        call.start_span().__enter__().set_attribute('messaging.operation.type', 'publish'),
+        call.start_span().__enter__().set_attribute('messaging.destination.name', 'a'),
+        call.start_span().__enter__().set_attribute('messaging.client.id', '<client-id>'),
+        call.start_span().__enter__().set_attribute('messaging.kafka.message.tombstone', False),
+        call.start_span().__enter__().set_attribute('messaging.kafka.message.key', 'a'),
+        call.start_span().__enter__().set_attribute('server.address', 'localhost'),
+        call.start_span().__enter__().set_attribute('server.port', '9092'),
+        call.start_span().__exit__(None, None, None),
     ]
     tracer.assert_has_calls(expected_calls)
 

@@ -1,10 +1,6 @@
-try:
-    from confluent_kafka_helpers.tracing.backends.opentracer import OpenTracerBackend
+from . import datadog
+from .opentelemetry import OpenTelemetryBackend
 
-    tracer = OpenTracerBackend()  # type: ignore
-except ModuleNotFoundError:
-    from confluent_kafka_helpers.tracing.backends.nulltracer import NullTracerBackend
+tracer = OpenTelemetryBackend("confluent_kafka_helpers")
 
-    tracer = NullTracerBackend()  # type: ignore
-
-__all__ = ['tracer']
+__all__ = ['tracer', 'OpenTelemetryBackend', 'datadog']
