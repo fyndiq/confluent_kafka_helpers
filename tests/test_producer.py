@@ -91,6 +91,9 @@ def test_avro_producer_adds_tracing(tracer, avro_producer):
         call.start_span().__enter__().set_attribute('messaging.kafka.message.key', 'a'),
         call.start_span().__enter__().set_attribute('server.address', 'localhost'),
         call.start_span().__enter__().set_attribute('server.port', '9092'),
+        call.start_span()
+        .__enter__()
+        .set_attribute('messaging.producer.service.name', 'unknown_service'),
         call.start_span().__exit__(None, None, None),
     ]
     tracer.assert_has_calls(expected_calls)

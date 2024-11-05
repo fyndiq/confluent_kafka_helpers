@@ -13,7 +13,7 @@ from confluent_kafka_helpers.callbacks import (
 )
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
 from confluent_kafka_helpers.tracing import attributes as attrs
-from confluent_kafka_helpers.tracing import tracer
+from confluent_kafka_helpers.tracing import datadog, tracer
 
 logger = structlog.get_logger(__name__)
 
@@ -149,6 +149,10 @@ class AvroProducer(ConfluentAvroProducer):
             span.set_attribute(attrs.SERVER_ADDRESS, server_address)
             if server_port:
                 span.set_attribute(attrs.SERVER_PORT, server_port[0])
+
+            span.set_attribute(
+                attrs.MESSAGING_PRODUCER_SERVICE_NAME, datadog.get_datadog_service_name()
+            )
 
             super().produce(
                 topic=topic,
