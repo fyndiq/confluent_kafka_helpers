@@ -21,7 +21,8 @@ def on_delivery_cb_metrics(error, message, statsd=statsd):
 def stats_cb_metrics(stats):
     stats = json.loads(stats)
     instance_type = stats.get('type')
-    base_tags = [f'type:{instance_type}']
+    client_id = stats.get('client_id')
+    base_tags = [f'type:{instance_type}', f'client_id:{client_id}']
 
     send_top_level_stats(stats, base_tags)
     send_broker_stats(stats, base_tags)

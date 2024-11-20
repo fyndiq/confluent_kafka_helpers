@@ -27,9 +27,29 @@ class TimedNullDecorator:
         pass
 
 
+class StatsdConsoleClient:
+    """
+    Print metrics to the console for debugging.
+    """
+
+    def __call__(self, *args, **kwargs):
+        print(args, kwargs)
+        return self
+
+    def __getattr__(self, name):
+        def method(*args, **kwargs):
+            print(args, kwargs)
+            return self
+
+        return method
+
+
 try:
     if getenv('DATADOG_ENABLE_METRICS') != '1':
-        statsd = StatsdNullClient()  # type: ignore
+        if getenv('DATADOG_METRICS_DEBUG') == '1':
+            statsd = StatsdConsoleClient()  # type: ignore
+        else:
+            statsd = StatsdNullClient()  # type: ignore
     else:
         import datadog
 
