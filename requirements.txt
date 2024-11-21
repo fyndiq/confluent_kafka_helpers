@@ -12,27 +12,27 @@ avro==1.12.0
     # via confluent-kafka
 backports-tarfile==1.2.0
     # via jaraco-context
-black==24.8.0
+black==24.10.0
     # via flake8-black
-build==1.2.2
+build==1.2.2.post1
     # via pip-tools
 certifi==2024.8.30
     # via requests
 cffi==1.17.1
     # via cryptography
-charset-normalizer==3.3.2
+charset-normalizer==3.4.0
     # via requests
 click==8.1.7
     # via
     #   black
     #   pip-tools
-confluent-kafka[avro,schema-registry]==2.5.3
+confluent-kafka[avro]==2.6.1
     # via -r requirements.in
-coverage[toml]==7.6.1
+coverage[toml]==7.6.7
     # via pytest-cov
-cryptography==43.0.1
+cryptography==43.0.3
     # via secretstorage
-deprecated==1.2.14
+deprecated==1.2.15
     # via
     #   opentelemetry-api
     #   opentelemetry-semantic-conventions
@@ -75,13 +75,13 @@ jaraco-classes==3.4.0
     # via keyring
 jaraco-context==6.0.1
     # via keyring
-jaraco-functools==4.0.2
+jaraco-functools==4.1.0
     # via keyring
 jeepney==0.8.0
     # via
     #   keyring
     #   secretstorage
-keyring==25.4.1
+keyring==25.5.0
     # via twine
 markdown-it-py==3.0.0
     # via rich
@@ -93,7 +93,7 @@ more-itertools==10.5.0
     # via
     #   jaraco-classes
     #   jaraco-functools
-mypy==1.11.2
+mypy==1.13.0
     # via -r requirements.in
 mypy-extensions==1.0.0
     # via
@@ -107,7 +107,7 @@ opentelemetry-api==1.27.0
     #   opentelemetry-semantic-conventions
 opentelemetry-semantic-conventions==0.48b0
     # via -r requirements.in
-packaging==24.1
+packaging==24.2
     # via
     #   black
     #   build
@@ -137,7 +137,7 @@ pygments==2.18.0
     #   pdbpp
     #   readme-renderer
     #   rich
-pyproject-hooks==1.1.0
+pyproject-hooks==1.2.0
     # via
     #   build
     #   pip-tools
@@ -149,7 +149,7 @@ pytest==8.3.3
     #   pytest-cov
     #   pytest-icdiff
     #   pytest-mock
-pytest-cov==5.0.0
+pytest-cov==6.0.0
     # via pytest-cover
 pytest-cover==3.0.0
     # via pytest-coverage
@@ -163,6 +163,7 @@ readme-renderer==44.0
     # via twine
 requests==2.32.3
     # via
+    #   -r requirements.in
     #   confluent-kafka
     #   requests-toolbelt
     #   twine
@@ -170,13 +171,13 @@ requests-toolbelt==1.0.0
     # via twine
 rfc3986==2.0.0
     # via twine
-rich==13.8.1
+rich==13.9.4
     # via twine
 secretstorage==3.3.3
     # via keyring
 structlog==24.4.0
     # via -r requirements.in
-tomli==2.0.1
+tomli==2.1.0
     # via
     #   black
     #   build
@@ -191,23 +192,24 @@ typing-extensions==4.12.2
     # via
     #   black
     #   mypy
+    #   rich
 urllib3==2.2.3
     # via
     #   requests
     #   twine
-wheel==0.44.0
+wheel==0.45.0
     # via pip-tools
 wmctrl==0.5
     # via pdbpp
 wrapt==1.16.0
     # via deprecated
-zipp==3.20.2
+zipp==3.21.0
     # via importlib-metadata
 
 # The following packages are considered to be unsafe in a requirements file:
-pip==24.2
+pip==24.3.1
     # via
     #   -r requirements.in
     #   pip-tools
-setuptools==75.1.0
+setuptools==75.6.0
     # via pip-tools
