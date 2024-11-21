@@ -24,6 +24,7 @@ def confluent_avro_producer():
 
 @pytest.fixture
 @patch('confluent_kafka_helpers.producer.AvroProducer._close', MagicMock())
+@patch('confluent_kafka_helpers.producer.AvroProducer._pool_loop', MagicMock())
 def avro_producer(confluent_avro_producer, avro_schema_registry):
     producer_config = config.Config.KAFKA_PRODUCER_CONFIG
     producer_config["client.id"] = "<client-id>"

@@ -39,4 +39,4 @@ class StatsCallbackMetricsTests:
         }
         stats_cb_metrics(json.dumps(stats))
 
-        assert statsd.gauge.call_count == 53
+        assert statsd.gauge.call_count == 56

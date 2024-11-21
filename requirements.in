@@ -13,6 +13,7 @@ pytest-mock
 structlog
 twine
 
+confluent-kafka[avro]==2.*
 opentelemetry-api==1.27.0
 opentelemetry-semantic-conventions==0.48b0  # 0.48b0 == 1.27.0
-confluent-kafka[avro,schema-registry]==2.*
+requests>=2
