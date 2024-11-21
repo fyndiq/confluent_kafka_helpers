@@ -1,5 +1,7 @@
 import atexit
 import socket
+import threading
+import time
 
 import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
@@ -70,7 +72,20 @@ class AvroProducer(ConfluentAvroProducer):
 
         super().__init__(config, **kwargs)
 
+        self.running = threading.Event()
+        self.poll_thread = threading.Thread(target=self._pool_loop, daemon=True)
+        self.poll_thread.start()
+        self.running.set()
+
+    def _pool_loop(self):
+        while self.running.wait(1):
+            self.poll(0.1)
+            time.sleep(5)
+
     def _close(self):
+        logger.info("Wait for poll thread")
+        self.running.clear()
+        self.poll_thread.join()
         logger.info("Flushing producer")
         super().flush()
 
