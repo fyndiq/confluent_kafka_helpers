@@ -83,7 +83,7 @@ class AvroProducer(ConfluentAvroProducer):
             time.sleep(5)
 
     def _close(self):
-        logger.info("Wait for poll thread")
+        logger.info("Waiting for poll thread")
         self.running.clear()
         self.poll_thread.join()
         logger.info("Flushing producer")
