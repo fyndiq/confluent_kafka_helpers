@@ -3,6 +3,7 @@ import structlog
 from confluent_kafka_helpers.metrics import base_metric, statsd
 
 logger = structlog.get_logger(__name__)
+window_metrics = ['min', 'max', 'avg', 'sum', 'cnt', 'p95']
 
 
 def send_metric(base, metric, stats, tags):
@@ -98,7 +99,6 @@ def send_broker_stats(stats, base_tags):
         # Number of disconnects (triggered by broker, network, load-balancer, etc.).
         'disconnects',
     ]
-    window_metrics = ['min', 'max', 'avg', 'sum', 'cnt', 'p95']
     req_names = [
         'AddOffsetsToTxn',
         'AddPartitionsToTxn',
@@ -157,3 +157,22 @@ def send_cgrp_stats(stats, base_tags):
     ]
     for metric in metrics:
         send_metric(base, metric, stats.get('cgrp'), base_tags)
+
+
+def send_topics_stats(stats, base_tags):
+    topics = stats.get('topics')
+    if not topics:
+        return
+
+    base = f'{base_metric}.librdkafka.topics'
+    for name, topic in topics.items():
+        tags = base_tags + [f'topic:{name}']
+        for metric in window_metrics:
+            batchsize, batchcnt = (
+                # Batch sizes in bytes
+                topic.get('batchsize'),
+                # Batch message counts
+                topic.get('batchcnt'),
+            )
+            send_metric(f'{base}.batchsize', metric, batchsize, tags)
+            send_metric(f'{base}.batchcnt', metric, batchcnt, tags)
