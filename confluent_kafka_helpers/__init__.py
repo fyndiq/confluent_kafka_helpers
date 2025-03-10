@@ -28,7 +28,8 @@ def termination_handler(signum, frame):
     logger.debug("Received termination signal", signum=signum)
     if existing_termination_handler:
         logger.debug(
-            "Using existing termination handler", name=existing_termination_handler.__qualname__
+            "Using existing termination handler",
+            name=existing_termination_handler.__qualname__,
         )
         existing_termination_handler(signum, frame)
     else:
@@ -37,9 +38,10 @@ def termination_handler(signum, frame):
 
 def interrupt_handler(signum, frame):
     logger.debug("Received interrupt signal", signum=signum)
-    if existing_interrupt_handler is not signal.default_int_handler:
+    if existing_interrupt_handler:
         logger.debug(
-            "Using existing interrupt handler", name=existing_interrupt_handler.__qualname__
+            "Using existing interrupt handler",
+            name=existing_interrupt_handler.__qualname__,
         )
         existing_interrupt_handler(signum, frame)
     else:
