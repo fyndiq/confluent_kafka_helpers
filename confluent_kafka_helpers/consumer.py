@@ -8,6 +8,7 @@ from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from opentelemetry.trace import SpanKind
 
 from confluent_kafka_helpers.callbacks import default_error_cb, default_stats_cb, get_callback
+from confluent_kafka_helpers.context import clear_propagated_headers, set_propagated_headers
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.message import Message, decode_kafka_headers
 from confluent_kafka_helpers.metrics import base_metric, statsd
@@ -49,7 +50,6 @@ def default_error_handler(kafka_error):
 
 
 class AvroConsumer:
-
     DEFAULT_CONFIG = {
         "client.id": socket.gethostname(),
         "default.topic.config": {"auto.offset.reset": "earliest"},
@@ -79,6 +79,8 @@ class AvroConsumer:
         self.client_id = self.config["client.id"]
         self.bootstrap_servers = self.config["bootstrap.servers"]
         self.group_id = self.config["group.id"]
+
+        self.propagate_header_keys = self.config.pop("headers.propagate", [])
 
         logger.info("Initializing consumer", config=self.config)
         self.consumer = ConfluentAvroConsumer(self.config, **kwargs)
@@ -139,7 +141,14 @@ class AvroConsumer:
             message_class = value.get("class") if isinstance(value, dict) else None
             resource_name = f"{message.topic()}:{message_class}" if message_class else resource_name
 
-            context = tracer.extract_headers(headers=decode_kafka_headers(message.headers()))
+            headers = decode_kafka_headers(message.headers())
+            propagated_headers = {
+                k: v for k, v in headers.items() if k in self.propagate_header_keys
+            }
+            logger.debug("Setting propagated headers", headers=propagated_headers)
+            set_propagated_headers(propagated_headers)
+
+            context = tracer.extract_headers(headers=headers)
             with tracer.start_span(
                 name="kafka.consume",
                 kind=SpanKind.CONSUMER,
@@ -154,10 +163,12 @@ class AvroConsumer:
                     span.set_attribute("message.class", message_class)
 
                 span.set_attribute(
-                    attrs.MESSAGING_OPERATION_NAME, attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME
+                    attrs.MESSAGING_OPERATION_NAME,
+                    attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME,
                 )
                 span.set_attribute(
-                    attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE
+                    attrs.MESSAGING_OPERATION_TYPE,
+                    attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE,
                 )
                 span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
                 span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, message._meta.topic)
@@ -176,6 +187,8 @@ class AvroConsumer:
                     span.set_attribute(attrs.SERVER_PORT, server_port[0])
 
                 yield message
+
+                clear_propagated_headers()
 
     def _get_topics(self, config):
         topics = config.pop("topics", None)

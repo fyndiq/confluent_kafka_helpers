@@ -11,46 +11,64 @@ from tests import config
 
 @pytest.fixture
 def confluent_message():
-    class PollReturnMock:
-        value = MagicMock()
-        value.return_value = b"foobar"
-        error = MagicMock()
-        error.return_value = None
-        key = MagicMock()
-        key.return_value = 1
-        offset = MagicMock()
-        offset.return_value = 0
-        partition = MagicMock()
-        partition.return_value = 1
-        topic = MagicMock()
-        topic.return_value = "test"
-        timestamp = MagicMock()
-        timestamp.return_value = (1, -1)
-        headers = MagicMock(return_value=[("foo", b"bar")])
+    def _make_message(headers=None):
+        class PollReturnMock:
+            def __init__(self):
+                self.value = MagicMock(return_value=b"foobar")
+                self.error = MagicMock(return_value=None)
+                self.key = MagicMock(return_value=1)
+                self.offset = MagicMock(return_value=0)
+                self.partition = MagicMock(return_value=1)
+                self.topic = MagicMock(return_value="test")
+                self.timestamp = MagicMock(return_value=(1, -1))
+                self.headers = MagicMock(return_value=headers or [("foo", b"bar")])
 
-    return PollReturnMock()
+        return PollReturnMock()
+
+    return _make_message
 
 
 @pytest.fixture
 def confluent_avro_consumer(confluent_message):
-    class ConfluentAvroConsumerMock(MagicMock):
-        subscribe = MagicMock()
-        poll = MagicMock(name="poll", side_effect=[confluent_message, StopIteration])
-        close = MagicMock()
-        get_watermark_offsets = MagicMock(name="watermark_test", return_value=[1, 1])
+    def _create_consumer(message=None):
+        class ConfluentAvroConsumerMock(MagicMock):
+            subscribe = MagicMock()
+            poll = MagicMock(
+                name="poll", side_effect=[message or confluent_message(), StopIteration]
+            )
+            close = MagicMock()
+            get_watermark_offsets = MagicMock(name="watermark_test", return_value=[1, 1])
 
-    return ConfluentAvroConsumerMock(spec=ConfluentAvroConsumer, name="ConfluentAvroConsumerMock")
+        return ConfluentAvroConsumerMock(
+            spec=ConfluentAvroConsumer, name="ConfluentAvroConsumerMock"
+        )
+
+    return _create_consumer
 
 
 @pytest.fixture
-def avro_consumer(confluent_avro_consumer):
-    consumer_config = config.Config.KAFKA_CONSUMER_CONFIG
-    consumer_config["client.id"] = "<client-id>"
-    with ExitStack() as stack:
-        stack.enter_context(
-            patch("confluent_kafka_helpers.consumer.ConfluentAvroConsumer", confluent_avro_consumer)
-        )
-        yield consumer.AvroConsumer(consumer_config)
+def avro_consumer(confluent_avro_consumer, confluent_message):
+    def _create_consumer(config_override=None, headers=None):
+        config_data = config.Config.KAFKA_CONSUMER_CONFIG.copy()
+        config_data["client.id"] = "<client-id>"
+        if config_override:
+            config_data.update(config_override)
+
+        message = confluent_message(headers=headers)
+        mock_consumer = confluent_avro_consumer(message=message)
+
+        with ExitStack() as stack:
+            stack.enter_context(
+                patch(
+                    "confluent_kafka_helpers.consumer.ConfluentAvroConsumer",
+                    mock_consumer,
+                )
+            )
+            avro_consumer = consumer.AvroConsumer(config_data)
+            setattr(avro_consumer, "_mock_consumer", mock_consumer)
+            return avro_consumer
+
+    return _create_consumer
 
 
 @pytest.fixture
