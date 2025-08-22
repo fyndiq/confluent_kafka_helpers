@@ -1,6 +1,5 @@
 [tool.black]
 line-length = 100
-skip_string_normalization = true
 exclude = '''
 /(
     \.git

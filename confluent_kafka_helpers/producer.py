@@ -29,11 +29,11 @@ class TopicNotRegistered(Exception):
 
 class AvroProducer(ConfluentAvroProducer):
     DEFAULT_CONFIG = {
-        'client.id': socket.gethostname(),
-        'log.connection.close': False,
-        'enable.idempotence': True,
-        'max.in.flight': 1,
-        'linger.ms': 1000,
+        "client.id": socket.gethostname(),
+        "log.connection.close": False,
+        "enable.idempotence": True,
+        "max.in.flight": 1,
+        "linger.ms": 1000,
     }
 
     def __init__(
@@ -45,20 +45,20 @@ class AvroProducer(ConfluentAvroProducer):
         **kwargs,
     ):
         config = {**self.DEFAULT_CONFIG, **config}
-        config['on_delivery'] = get_callback(
-            config.pop('on_delivery', None), default_on_delivery_cb
+        config["on_delivery"] = get_callback(
+            config.pop("on_delivery", None), default_on_delivery_cb
         )
-        config['error_cb'] = get_callback(config.pop('error_cb', None), default_error_cb)
-        config['stats_cb'] = get_callback(config.pop('stats_cb', None), default_stats_cb)
+        config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
+        config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
 
-        schema_registry_url = config['schema.registry.url']
+        schema_registry_url = config["schema.registry.url"]
         self.schema_registry = schema_registry(schema_registry_url)
-        self.value_serializer = config.pop('value_serializer', value_serializer)
+        self.value_serializer = config.pop("value_serializer", value_serializer)
 
-        self.bootstrap_servers = config['bootstrap.servers']
-        self.client_id = config['client.id']
+        self.bootstrap_servers = config["bootstrap.servers"]
+        self.client_id = config["client.id"]
 
-        topics = config.pop('topics')
+        topics = config.pop("topics")
         self.topic_schemas = self._get_topic_schemas(topics)
 
         # use the first topic as default
@@ -78,8 +78,8 @@ class AvroProducer(ConfluentAvroProducer):
         """
         Get subject names for given topic.
         """
-        key_subject_name = f'{topic}-key'
-        value_subject_name = f'{topic}-value'
+        key_subject_name = f"{topic}-key"
+        value_subject_name = f"{topic}-value"
         return key_subject_name, value_subject_name
 
     def _get_topic_schemas(self, topics):
@@ -112,7 +112,7 @@ class AvroProducer(ConfluentAvroProducer):
             raise TopicNotRegistered(f"Topic {topic} is not registered")
 
         if self.value_serializer:
-            with tracer.start_span(name='kafka.serialize_message') as span:
+            with tracer.start_span(name="kafka.serialize_message") as span:
                 span.set_attribute(
                     attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_CREATE
                 )
@@ -122,7 +122,7 @@ class AvroProducer(ConfluentAvroProducer):
         resource_name = f"{topic}:{message_class}" if message_class else topic
 
         with tracer.start_span(
-            name='kafka.produce', kind=SpanKind.PRODUCER, resource_name=resource_name
+            name="kafka.produce", kind=SpanKind.PRODUCER, resource_name=resource_name
         ) as span:
             logger.info("Producing message", topic=topic, key=key, value=value, headers=headers)
             tracer.inject_headers(headers=headers)
@@ -165,10 +165,10 @@ class AvroProducer(ConfluentAvroProducer):
             )
 
     def flush(self, *args, **kwargs):
-        with tracer.start_span(name='kafka.flush', kind=SpanKind.PRODUCER):
+        with tracer.start_span(name="kafka.flush", kind=SpanKind.PRODUCER):
             logger.info("Flushing producer")
             super().flush(*args, **kwargs)
 
     def poll(self, *args, **kwargs):
-        with tracer.start_span(name='kafka.poll', kind=SpanKind.PRODUCER):
+        with tracer.start_span(name="kafka.poll", kind=SpanKind.PRODUCER):
             super().poll(*args, **kwargs)

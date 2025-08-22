@@ -15,7 +15,7 @@ def extract_timestamp_from_message(kafka_message):
 def decode_kafka_headers(headers):
     if headers and isinstance(headers, list):
         headers = {
-            k: v.decode('utf-8') if isinstance(v, bytes) else v for k, v in dict(headers).items()
+            k: v.decode("utf-8") if isinstance(v, bytes) else v for k, v in dict(headers).items()
         }
     else:
         headers = {}

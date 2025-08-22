@@ -17,7 +17,7 @@ def avro_message_loader(confluent_avro_consumer, avro_schema_registry):
     loader_config = config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
     with ExitStack() as stack:
         stack.enter_context(
-            patch('confluent_kafka_helpers.loader.AvroLazyConsumer', confluent_avro_consumer)
+            patch("confluent_kafka_helpers.loader.AvroLazyConsumer", confluent_avro_consumer)
         )
         yield loader.AvroMessageLoader(loader_config)
 
@@ -25,14 +25,14 @@ def avro_message_loader(confluent_avro_consumer, avro_schema_registry):
 def test_avro_message_loader_init(
     confluent_avro_consumer, avro_message_loader, avro_schema_registry
 ):
-    assert avro_message_loader.topic == 'a'
+    assert avro_message_loader.topic == "a"
     assert avro_message_loader.num_partitions == 10
     assert confluent_avro_consumer.call_count == 1
     assert avro_schema_registry.call_count == 1
 
 
 @pytest.mark.parametrize(
-    'key, num_partitions, expected_response', [(b'90', 100, 65), (b'15', 10, 8)]
+    "key, num_partitions, expected_response", [(b"90", 100, 65), (b"15", 10, 8)]
 )
 def test_default_partitioner(key, num_partitions, expected_response):
     """
@@ -47,7 +47,7 @@ def test_avro_message_loader_load(confluent_message, confluent_avro_consumer, av
     avro_message_loader.key_serializer = lambda arg: arg
     message_generator = avro_message_loader.load(key=1, partitioner=partitioner)
     message = next(message_generator)
-    assert message.value == b'foobar'
+    assert message.value == b"foobar"
     with pytest.raises(RuntimeError):
         message = next(message_generator)
 
@@ -55,12 +55,12 @@ def test_avro_message_loader_load(confluent_message, confluent_avro_consumer, av
 class TestFindDuplicatedMessages:
     def test_should_log_duplicated_messages(self):
         message = Mock()
-        message.value.return_value = 'a'
-        message.key.return_value = '1'
-        message.partition.return_value = '0'
-        message.offset.return_value = '0'
-        message.topic.return_value = 'f'
-        message.topic.return_value = 'f'
+        message.value.return_value = "a"
+        message.key.return_value = "1"
+        message.partition.return_value = "0"
+        message.offset.return_value = "0"
+        message.topic.return_value = "f"
+        message.topic.return_value = "f"
         message.timestamp.return_value = 1517389192
 
         messages = [message, message]
@@ -82,7 +82,7 @@ class TestErrorHandler:
             loader.default_error_handler(error)
 
     @pytest.mark.parametrize(
-        'code',
+        "code",
         [
             (ConfluentKafkaError._ALL_BROKERS_DOWN),
             (ConfluentKafkaError._NO_OFFSET),

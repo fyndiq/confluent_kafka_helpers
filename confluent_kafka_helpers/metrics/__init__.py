@@ -1,6 +1,6 @@
 from os import getenv
 
-base_metric = 'confluent_kafka_helpers'
+base_metric = "confluent_kafka_helpers"
 
 
 class StatsdNullClient:
@@ -28,7 +28,7 @@ class TimedNullDecorator:
 
 
 try:
-    if getenv('DATADOG_ENABLE_METRICS') != '1':
+    if getenv("DATADOG_ENABLE_METRICS") != "1":
         statsd = StatsdNullClient()  # type: ignore
     else:
         import datadog

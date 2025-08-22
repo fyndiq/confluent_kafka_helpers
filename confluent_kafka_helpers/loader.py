@@ -57,10 +57,10 @@ def default_error_handler(kafka_error):
         logger.debug("Reached end of partition")
         raise EndOfPartition
     elif code == KafkaError._TRANSPORT:
-        statsd.increment(f'{base_metric}.loader.message.count.error')
+        statsd.increment(f"{base_metric}.loader.message.count.error")
         raise KafkaTransportError(kafka_error)
     else:
-        statsd.increment(f'{base_metric}.loader.message.count.error')
+        statsd.increment(f"{base_metric}.loader.message.count.error")
         raise KafkaException(kafka_error)
 
 
@@ -128,33 +128,33 @@ class MessageGenerator:
 class AvroMessageLoader:
 
     DEFAULT_CONFIG = {
-        'log.connection.close': False,
-        'log.thread.name': False,
-        'default.topic.config': {'auto.offset.reset': 'earliest'},
-        'fetch.wait.max.ms': 10,
-        'fetch.min.bytes': 1000,
-        'offset.store.method': 'none',
-        'enable.auto.commit': False,
-        'fetch.error.backoff.ms': 0,
-        'group.id': str(uuid.uuid4()),
-        'client.id': socket.gethostname(),
-        'enable.partition.eof': True,
+        "log.connection.close": False,
+        "log.thread.name": False,
+        "default.topic.config": {"auto.offset.reset": "earliest"},
+        "fetch.wait.max.ms": 10,
+        "fetch.min.bytes": 1000,
+        "offset.store.method": "none",
+        "enable.auto.commit": False,
+        "fetch.error.backoff.ms": 0,
+        "group.id": str(uuid.uuid4()),
+        "client.id": socket.gethostname(),
+        "enable.partition.eof": True,
     }
 
     def __init__(self, config):
-        self.topic = config['topic']
-        self.num_partitions = int(config['num_partitions'])
+        self.topic = config["topic"]
+        self.num_partitions = int(config["num_partitions"])
 
-        default_key_subject_name = f'{self.topic}-key'
-        self.key_subject_name = config.get('key_subject_name', default_key_subject_name)
+        default_key_subject_name = f"{self.topic}-key"
+        self.key_subject_name = config.get("key_subject_name", default_key_subject_name)
 
-        schema_registry_url = config['consumer']['schema.registry.url']
+        schema_registry_url = config["consumer"]["schema.registry.url"]
         schema_registry = AvroSchemaRegistry(schema_registry_url)
         self.key_serializer = partial(
             schema_registry.key_serializer, self.key_subject_name, self.topic
         )
 
-        consumer_config = {**self.DEFAULT_CONFIG, **config['consumer']}
+        consumer_config = {**self.DEFAULT_CONFIG, **config["consumer"]}
         logger.info("Initializing loader", config=consumer_config)
         self.consumer = AvroLazyConsumer(consumer_config)
 

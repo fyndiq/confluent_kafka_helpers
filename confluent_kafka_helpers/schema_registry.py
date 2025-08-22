@@ -24,9 +24,9 @@ class AvroSchemaRegistry:
 
     def get_latest_schema(self, subject):
         with tracer.start_span(
-            name='schema_registry.get_latest_schema',
+            name="schema_registry.get_latest_schema",
             kind=SpanKind.CLIENT,
-            service_name='schema-registry',
+            service_name="schema-registry",
             resource_name=subject,
         ) as span:
             schema_id, schema, version = self.client.get_latest_schema(subject)

@@ -17,7 +17,7 @@ class GetCallBackTests:
         default_cb = Mock()
         callback = get_callback(custom_cb, default_cb)
         assert callback.func == default_cb
-        assert callback.keywords == {'custom_cb': custom_cb}
+        assert callback.keywords == {"custom_cb": custom_cb}
 
 
 class DefaultErrorCallbackTests:
@@ -54,8 +54,8 @@ class DefaultOnDeliveryCallbackTests:
 class DefaultStatsCallbackTests:
     def test_should_send_metrics(self):
         send_metrics = Mock()
-        default_stats_cb('foo', custom_cb=Mock(), send_metrics=send_metrics)
-        send_metrics.assert_called_once_with('foo')
+        default_stats_cb("foo", custom_cb=Mock(), send_metrics=send_metrics)
+        send_metrics.assert_called_once_with("foo")
 
     def test_should_call_custom_callback(self):
         custom_cb = Mock()

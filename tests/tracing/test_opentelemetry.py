@@ -24,10 +24,10 @@ def test_start_span(backend, mock_tracer):
 
     with backend.start_span("test_operation") as span:
         expected_calls = [
-            call.set_attribute('messaging.system', 'kafka'),
-            call.set_attribute('span.type', 'custom'),
-            call.set_attribute('operation.name', 'test_operation'),
-            call.set_attribute('service.name', 'kafka'),
+            call.set_attribute("messaging.system", "kafka"),
+            call.set_attribute("span.type", "custom"),
+            call.set_attribute("operation.name", "test_operation"),
+            call.set_attribute("service.name", "kafka"),
         ]
         span.assert_has_calls(expected_calls)
 
@@ -36,18 +36,18 @@ def test_start_span(backend, mock_tracer):
 
 def test_inject_headers(backend):
     headers = {"foo": "bar"}
-    with patch.object(TraceContextTextMapPropagator, 'inject', autospec=True) as inject_mock:
+    with patch.object(TraceContextTextMapPropagator, "inject", autospec=True) as inject_mock:
         backend.inject_headers(headers)
-        inject_mock.assert_called_once_with(ANY, {'foo': 'bar'})
+        inject_mock.assert_called_once_with(ANY, {"foo": "bar"})
 
 
 def test_extract_headers(backend):
     headers = {"foo": "bar"}
-    with patch.object(TraceContextTextMapPropagator, 'extract', autospec=True) as extract_mock:
+    with patch.object(TraceContextTextMapPropagator, "extract", autospec=True) as extract_mock:
         mock_context = Mock(spec=Context)
         extract_mock.return_value = mock_context
         context = backend.extract_headers(headers)
-        extract_mock.assert_called_once_with(ANY, {'foo': 'bar'})
+        extract_mock.assert_called_once_with(ANY, {"foo": "bar"})
         assert context is mock_context
 
 

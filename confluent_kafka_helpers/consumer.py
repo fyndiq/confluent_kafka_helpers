@@ -41,23 +41,23 @@ def default_error_handler(kafka_error):
     if code == KafkaError._PARTITION_EOF:
         raise EndOfPartition
     elif code == KafkaError._TRANSPORT:
-        statsd.increment(f'{base_metric}.consumer.message.count.error')
+        statsd.increment(f"{base_metric}.consumer.message.count.error")
         raise KafkaTransportError(kafka_error)
     else:
-        statsd.increment(f'{base_metric}.consumer.message.count.error')
+        statsd.increment(f"{base_metric}.consumer.message.count.error")
         raise KafkaException(kafka_error)
 
 
 class AvroConsumer:
 
     DEFAULT_CONFIG = {
-        'client.id': socket.gethostname(),
-        'default.topic.config': {'auto.offset.reset': 'earliest'},
-        'enable.auto.commit': False,
-        'fetch.wait.max.ms': 1000,
-        'fetch.min.bytes': 10000,
-        'log.connection.close': False,
-        'log.thread.name': False,
+        "client.id": socket.gethostname(),
+        "default.topic.config": {"auto.offset.reset": "earliest"},
+        "enable.auto.commit": False,
+        "fetch.wait.max.ms": 1000,
+        "fetch.min.bytes": 10000,
+        "log.connection.close": False,
+        "log.thread.name": False,
     }
 
     def __init__(
@@ -67,13 +67,13 @@ class AvroConsumer:
         error_handler: Callable = default_error_handler,
         **kwargs,
     ) -> None:
-        stop_on_eof = config.pop('stop_on_eof', False)
-        poll_timeout = config.pop('poll_timeout', 0.1)
-        self.non_blocking = config.pop('non_blocking', False)
+        stop_on_eof = config.pop("stop_on_eof", False)
+        poll_timeout = config.pop("poll_timeout", 0.1)
+        self.non_blocking = config.pop("non_blocking", False)
 
         self.config = {**self.DEFAULT_CONFIG, **config}
-        self.config['error_cb'] = get_callback(config.pop('error_cb', None), default_error_cb)
-        self.config['stats_cb'] = get_callback(config.pop('stats_cb', None), default_stats_cb)
+        self.config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
+        self.config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
         self.topics = self._get_topics(self.config)
 
         self.client_id = self.config["client.id"]
@@ -133,7 +133,7 @@ class AvroConsumer:
                     yield None
                 continue
 
-            statsd.increment(f'{base_metric}.consumer.message.count.total')
+            statsd.increment(f"{base_metric}.consumer.message.count.total")
 
             value, resource_name = message.value(), message.topic()
             message_class = value.get("class") if isinstance(value, dict) else None
@@ -141,13 +141,13 @@ class AvroConsumer:
 
             context = tracer.extract_headers(headers=decode_kafka_headers(message.headers()))
             with tracer.start_span(
-                name='kafka.consume',
+                name="kafka.consume",
                 kind=SpanKind.CONSUMER,
                 resource_name=resource_name,
                 context=context,
                 links=tracer.extract_links(context=context),
             ) as span:
-                with tracer.start_span(name='kafka.create_message'):
+                with tracer.start_span(name="kafka.create_message"):
                     message = Message(message)
 
                 if message_class:
@@ -178,7 +178,7 @@ class AvroConsumer:
                 yield message
 
     def _get_topics(self, config):
-        topics = config.pop('topics', None)
+        topics = config.pop("topics", None)
         assert topics is not None, "You must subscribe to at least one topic"
 
         if not isinstance(topics, list):
@@ -188,10 +188,10 @@ class AvroConsumer:
 
     @property
     def is_auto_commit(self):
-        return self.config.get('enable.auto.commit', True)
+        return self.config.get("enable.auto.commit", True)
 
     def commit(self, *args, **kwargs):
-        with tracer.start_span(name='kafka.commit', kind=SpanKind.CONSUMER):
+        with tracer.start_span(name="kafka.commit", kind=SpanKind.CONSUMER):
             self.consumer.commit(*args, **kwargs)
 
 

@@ -122,24 +122,24 @@ def test_timestamp_is_not_available():
     "headers, expected_headers",
     [
         (
-            [('foo', b'bar')],
-            {'foo': 'bar'},
+            [("foo", b"bar")],
+            {"foo": "bar"},
         ),
         (
             None,
             {},
         ),
         (
-            {'foo': b'bar'},
+            {"foo": b"bar"},
             {},
         ),
         (
-            [('foo', None)],
-            {'foo': None},
+            [("foo", None)],
+            {"foo": None},
         ),
         (
-            [('foo', 1)],
-            {'foo': 1},
+            [("foo", 1)],
+            {"foo": 1},
         ),
     ],
 )

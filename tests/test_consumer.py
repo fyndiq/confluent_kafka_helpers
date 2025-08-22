@@ -13,17 +13,17 @@ from tests.kafka import KafkaError, KafkaMessage
 
 class TestAvroConsumer:
     def test_init(self, avro_consumer, confluent_avro_consumer):
-        assert avro_consumer.topics == ['a']
-        confluent_avro_consumer.subscribe.assert_called_once_with(['a'])
+        assert avro_consumer.topics == ["a"]
+        confluent_avro_consumer.subscribe.assert_called_once_with(["a"])
         confluent_avro_consumer.assert_called_once()
 
     def test_consume_messages(self, avro_consumer):
         with pytest.raises(RuntimeError):
             with avro_consumer as consumer:
                 for message in consumer:
-                    assert message.value == b'foobar'
+                    assert message.value == b"foobar"
 
-    @patch('confluent_kafka_helpers.consumer.tracer')
+    @patch("confluent_kafka_helpers.consumer.tracer")
     def test_consume_messages_adds_tracing(self, tracer, avro_consumer):
         with pytest.raises(RuntimeError):
             with avro_consumer as consumer:
@@ -31,29 +31,29 @@ class TestAvroConsumer:
                     pass
 
         expected_calls = [
-            call.extract_headers(headers={'foo': 'bar'}),
+            call.extract_headers(headers={"foo": "bar"}),
             call.extract_links(context=ANY),
             call.start_span(
-                name='kafka.consume',
+                name="kafka.consume",
                 kind=SpanKind.CONSUMER,
-                resource_name='test',
+                resource_name="test",
                 context=ANY,
                 links=ANY,
             ),
             call.start_span().__enter__(),
-            call.start_span(name='kafka.create_message'),
+            call.start_span(name="kafka.create_message"),
             call.start_span().__enter__(),
             call.start_span().__exit__(None, None, None),
-            call.start_span().__enter__().set_attribute('messaging.operation.name', 'consume'),
-            call.start_span().__enter__().set_attribute('messaging.operation.type', 'receive'),
-            call.start_span().__enter__().set_attribute('messaging.client.id', '<client-id>'),
-            call.start_span().__enter__().set_attribute('messaging.destination.name', 'test'),
-            call.start_span().__enter__().set_attribute('messaging.consumer.group.name', 1),
-            call.start_span().__enter__().set_attribute('messaging.destination.partition.id', 1),
-            call.start_span().__enter__().set_attribute('messaging.kafka.message.offset', 0),
-            call.start_span().__enter__().set_attribute('messaging.kafka.message.key', 1),
-            call.start_span().__enter__().set_attribute('server.address', 'localhost'),
-            call.start_span().__enter__().set_attribute('server.port', '9092'),
+            call.start_span().__enter__().set_attribute("messaging.operation.name", "consume"),
+            call.start_span().__enter__().set_attribute("messaging.operation.type", "receive"),
+            call.start_span().__enter__().set_attribute("messaging.client.id", "<client-id>"),
+            call.start_span().__enter__().set_attribute("messaging.destination.name", "test"),
+            call.start_span().__enter__().set_attribute("messaging.consumer.group.name", 1),
+            call.start_span().__enter__().set_attribute("messaging.destination.partition.id", 1),
+            call.start_span().__enter__().set_attribute("messaging.kafka.message.offset", 0),
+            call.start_span().__enter__().set_attribute("messaging.kafka.message.key", 1),
+            call.start_span().__enter__().set_attribute("server.address", "localhost"),
+            call.start_span().__enter__().set_attribute("server.port", "9092"),
         ]
         tracer.assert_has_calls(expected_calls)
 
@@ -112,7 +112,7 @@ class TestErrorHandler:
             default_error_handler(error)
 
     @pytest.mark.parametrize(
-        'code',
+        "code",
         [
             (ConfluentKafkaError._ALL_BROKERS_DOWN),
             (ConfluentKafkaError._NO_OFFSET),
