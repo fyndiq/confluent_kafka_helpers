@@ -16,10 +16,16 @@ from tests.kafka import KafkaError
 def avro_message_loader(confluent_avro_consumer, avro_schema_registry):
     loader_config = config.Config.KAFKA_REPOSITORY_LOADER_CONFIG
     with ExitStack() as stack:
+        confluent_consumer = confluent_avro_consumer()
         stack.enter_context(
-            patch("confluent_kafka_helpers.loader.AvroLazyConsumer", confluent_avro_consumer)
+            patch(
+                "confluent_kafka_helpers.loader.AvroLazyConsumer",
+                confluent_consumer,
+            )
         )
-        yield loader.AvroMessageLoader(loader_config)
+        avro_loader = loader.AvroMessageLoader(loader_config)
+        setattr(avro_loader, "_mock_consumer", confluent_consumer)
+        yield avro_loader
 
 
 def test_avro_message_loader_init(
@@ -27,7 +33,7 @@ def test_avro_message_loader_init(
 ):
     assert avro_message_loader.topic == "a"
     assert avro_message_loader.num_partitions == 10
-    assert confluent_avro_consumer.call_count == 1
+    assert avro_message_loader._mock_consumer.call_count == 1
     assert avro_schema_registry.call_count == 1
 
 

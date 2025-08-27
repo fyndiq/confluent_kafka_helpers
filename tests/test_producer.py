@@ -114,3 +114,36 @@ def test_get_topic_schemas(avro_producer, avro_schema_registry):
     assert topic == "a"
     assert key_schema == "1"
     assert value_schema == "2"
+
+
+@patch("confluent_kafka_helpers.producer.get_propagated_headers")
+def test_producer_merges_context_and_explicit_headers(
+    get_propagated_headers, confluent_avro_producer, avro_producer
+):
+    get_propagated_headers.return_value = {
+        "x-request-id": "abc-123",
+        "trace-id": "trace-xyz",
+    }
+
+    avro_producer.produce(
+        key="k",
+        value="v",
+        topic="c",
+        headers={"trace-id": "user-overridden", "user-id": "user-456"},
+    )
+
+    expected_headers = {
+        "x-request-id": "abc-123",  # from context
+        "trace-id": "user-overridden",  # overridden by user
+        "user-id": "user-456",  # only in user
+    }
+
+    _, key_schema, value_schema = avro_producer.topic_schemas["c"]
+    confluent_avro_producer.assert_called_once_with(
+        topic="c",
+        key="k",
+        value=avro_producer.value_serializer("v"),
+        key_schema=key_schema,
+        value_schema=value_schema,
+        headers=expected_headers,
+    )

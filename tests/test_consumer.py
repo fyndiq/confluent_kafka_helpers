@@ -12,21 +12,22 @@ from tests.kafka import KafkaError, KafkaMessage
 
 
 class TestAvroConsumer:
-    def test_init(self, avro_consumer, confluent_avro_consumer):
-        assert avro_consumer.topics == ["a"]
-        confluent_avro_consumer.subscribe.assert_called_once_with(["a"])
-        confluent_avro_consumer.assert_called_once()
+    def test_init(self, avro_consumer):
+        consumer = avro_consumer()
+        assert consumer.topics == ["a"]
+        consumer._mock_consumer.assert_called_once()
+        consumer.consumer.subscribe.assert_called_once_with(["a"])
 
     def test_consume_messages(self, avro_consumer):
         with pytest.raises(RuntimeError):
-            with avro_consumer as consumer:
+            with avro_consumer() as consumer:
                 for message in consumer:
                     assert message.value == b"foobar"
 
     @patch("confluent_kafka_helpers.consumer.tracer")
     def test_consume_messages_adds_tracing(self, tracer, avro_consumer):
         with pytest.raises(RuntimeError):
-            with avro_consumer as consumer:
+            with avro_consumer() as consumer:
                 for message in consumer:
                     pass
 
@@ -58,28 +59,47 @@ class TestAvroConsumer:
         tracer.assert_has_calls(expected_calls)
 
     def test_context_manager_close_consumer(self, mocker, avro_consumer):
-        mock_consumer = mocker.spy(avro_consumer, "consumer")
-        with avro_consumer:
+        consumer = avro_consumer()
+        mock_consumer = mocker.spy(consumer, "consumer")
+        with consumer:
             pass
         mock_consumer.close.assert_called_once()
         mock_consumer.reset_mock()
 
         with pytest.raises(ZeroDivisionError):
-            with avro_consumer:
+            with consumer:
                 1 / 0
         mock_consumer.close.assert_called_once()
 
     def test_context_manager_close_generator(self, mocker, avro_consumer):
-        mock_generator = mocker.spy(avro_consumer, "_generator")
-        with avro_consumer:
+        consumer = avro_consumer()
+        mock_generator = mocker.spy(consumer, "_generator")
+        with consumer:
             pass
         mock_generator.close.assert_called_once()
         mock_generator.reset_mock()
 
         with pytest.raises(ZeroDivisionError):
-            with avro_consumer:
+            with consumer:
                 1 / 0
         mock_generator.close.assert_called_once()
+
+    @patch("confluent_kafka_helpers.consumer.set_propagated_headers")
+    def test_sets_propagated_headers(self, set_propagated_headers, avro_consumer):
+        headers = [
+            ("x-request-id", b"abc-123"),
+            ("foo", b"bar"),
+            ("x-correlation-id", b"xyz-789"),
+        ]
+        config_override = {"headers.propagate": ["x-request-id", "x-correlation-id"]}
+
+        consumer = avro_consumer(config_override=config_override, headers=headers)
+
+        next(iter(consumer))
+
+        set_propagated_headers.assert_called_once_with(
+            {"x-request-id": "abc-123", "x-correlation-id": "xyz-789"}
+        )
 
 
 class TestGetMessage:

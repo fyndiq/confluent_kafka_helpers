@@ -11,6 +11,7 @@ from confluent_kafka_helpers.callbacks import (
     default_stats_cb,
     get_callback,
 )
+from confluent_kafka_helpers.context import get_propagated_headers
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import datadog, tracer
@@ -103,8 +104,10 @@ class AvroProducer(ConfluentAvroProducer):
         return topic_schemas
 
     def produce(self, value, key=None, topic=None, headers=None, **kwargs):
-        if headers is None:
-            headers = {}
+        propagated_headers = get_propagated_headers()
+        logger.debug("Retrieved propagated headers", headers=propagated_headers)
+        headers = {**propagated_headers, **(headers or {})}
+
         topic = topic or self.default_topic
         try:
             _, key_schema, value_schema = self.topic_schemas[topic]
@@ -114,7 +117,8 @@ class AvroProducer(ConfluentAvroProducer):
         if self.value_serializer:
             with tracer.start_span(name="kafka.serialize_message") as span:
                 span.set_attribute(
-                    attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_CREATE
+                    attrs.MESSAGING_OPERATION_TYPE,
+                    attrs.MESSAGING_OPERATION_TYPE_VALUE_CREATE,
                 )
                 value = self.value_serializer(value)
 
@@ -131,10 +135,12 @@ class AvroProducer(ConfluentAvroProducer):
                 span.set_attribute("message.class", message_class)
 
             span.set_attribute(
-                attrs.MESSAGING_OPERATION_NAME, attrs.MESSAGING_OPERATION_NAME_VALUE_PRODUCE
+                attrs.MESSAGING_OPERATION_NAME,
+                attrs.MESSAGING_OPERATION_NAME_VALUE_PRODUCE,
             )
             span.set_attribute(
-                attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_PUBLISH
+                attrs.MESSAGING_OPERATION_TYPE,
+                attrs.MESSAGING_OPERATION_TYPE_VALUE_PUBLISH,
             )
             span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, topic)
             span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
@@ -151,7 +157,8 @@ class AvroProducer(ConfluentAvroProducer):
                 span.set_attribute(attrs.SERVER_PORT, server_port[0])
 
             span.set_attribute(
-                attrs.MESSAGING_PRODUCER_SERVICE_NAME, datadog.get_datadog_service_name()
+                attrs.MESSAGING_PRODUCER_SERVICE_NAME,
+                datadog.get_datadog_service_name(),
             )
 
             super().produce(
