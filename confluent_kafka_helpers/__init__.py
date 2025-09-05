@@ -10,16 +10,9 @@ NOTE! Exit functions will not be triggered on SIGKILL, SIGSTOP or os._exit()
 import signal
 import sys
 
-import confluent_kafka
 import structlog
 
 logger = structlog.get_logger(__name__)
-logger.debug(
-    "Using confluent kafka versions",
-    version=confluent_kafka.version(),
-    libversion=confluent_kafka.libversion(),
-)
-
 existing_termination_handler = signal.getsignal(signal.SIGTERM)
 existing_interrupt_handler = signal.getsignal(signal.SIGINT)
 
