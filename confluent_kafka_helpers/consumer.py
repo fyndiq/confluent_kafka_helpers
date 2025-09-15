@@ -83,7 +83,7 @@ class AvroConsumer:
         self.propagate_header_keys = self.config.pop("headers.propagate", [])
 
         logger.info("Initializing consumer", config=self.config)
-        self.consumer = ConfluentAvroConsumer(self.config, **kwargs)
+        self.consumer = ConfluentAvroConsumer(self.config, logger=logger, **kwargs)
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()

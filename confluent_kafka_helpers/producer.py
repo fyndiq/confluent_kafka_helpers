@@ -69,7 +69,7 @@ class AvroProducer(ConfluentAvroProducer):
         logger.info("Initializing producer", config=config)
         atexit.register(self._close)
 
-        super().__init__(config, **kwargs)
+        super().__init__(config, logger=logger, **kwargs)
 
     def _close(self):
         logger.info("Flushing producer")
