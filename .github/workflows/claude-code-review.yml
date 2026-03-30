@@ -1,0 +1,10 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  claude-review:
+    uses: fyndiq/.github/.github/workflows/claude-code-review-reusable.yml@master
+    secrets: inherit
