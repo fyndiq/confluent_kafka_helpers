@@ -293,7 +293,7 @@ class TestGracefulShutdown:
             if i >= 5:
                 pytest.fail(
                     "Consumer kept yielding messages after shutdown_requested "
-                    "was set — drain-on-shutdown is not implemented."
+                    "was set — stop-after-current-message is not implemented."
                 )
 
         assert len(processed) == 1
@@ -312,7 +312,7 @@ class TestGracefulShutdown:
                 if i >= 5:
                     pytest.fail(
                         "Consumer kept yielding messages after shutdown_requested "
-                        "was set — drain-on-shutdown is not implemented."
+                        "was set — stop-after-current-message is not implemented."
                     )
 
         close_spy.assert_called_once()

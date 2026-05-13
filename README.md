@@ -9,6 +9,39 @@ Library built on top of [Confluent Kafka
 Python](https://github.com/confluentinc/confluent-kafka-python) adding
 abstractions for consuming and producing messages in a more Pythonic way.
 
+## Graceful shutdown
+
+Importing `confluent_kafka_helpers` installs handlers for `SIGTERM` and `SIGINT`
+that **do not exit the process immediately**. Instead the in-flight message handler always runs to completion before the loop exits.
+
+### Chaining with other signal handlers
+
+If another library (ddtrace, OpenTelemetry SDK, gunicorn, uvicorn, ...) has
+already installed a SIGTERM/SIGINT handler before `confluent_kafka_helpers`
+is imported, the existing handler is captured and **still called** after the
+flag is set.
+
+### Polling the flag from your own code
+
+Long-running handlers can check the flag and bail out early between subtasks:
+
+```python
+from confluent_kafka_helpers import shutdown_requested
+
+for message in consumer:
+    do_step_one(message)
+    if shutdown_requested.is_set():
+        break
+    do_step_two(message)
+```
+
+### Operational notes
+
+- `SIGKILL` cannot be intercepted. Kubernetes will still send it after
+  `terminationGracePeriodSeconds` if the process hasn't exited.
+- The flag is process-wide. Tests that exercise it must clear it (see
+  `tests/test_signals.py` for the autouse reset fixture pattern).
+
 ## OpenTelemetry (OTEL)
 
 ### Test generation of spans

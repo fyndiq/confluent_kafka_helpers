@@ -7,6 +7,7 @@ from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from opentelemetry.trace import SpanKind
 
+from confluent_kafka_helpers import shutdown_requested
 from confluent_kafka_helpers.callbacks import default_error_cb, default_stats_cb, get_callback
 from confluent_kafka_helpers.context import clear_propagated_headers, set_propagated_headers
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
@@ -137,7 +138,7 @@ class AvroConsumer:
         self._generator.close()
 
     def _message_generator(self):
-        while True:
+        while not shutdown_requested.is_set():
             message = self._get_message()
             if message is None:
                 if self.non_blocking:
@@ -198,6 +199,7 @@ class AvroConsumer:
                 yield message
 
                 clear_propagated_headers()
+        logger.info("Shutdown requested, exiting consumer loop")
 
     def _get_topics(self, config):
         topics = config.pop("topics", None)
