@@ -49,7 +49,12 @@ def default_error_handler(kafka_error):
         raise KafkaException(kafka_error)
 
 
-def is_kafka_transient_error(error: KafkaError):
+def is_kafka_transient_error(exc: KafkaException):
+    if not exc.args:
+        return False
+    error = exc.args[0]
+    if not isinstance(error, KafkaError):
+        return False
     return error.code() in {KafkaError.REQUEST_TIMED_OUT, KafkaError.BROKER_NOT_AVAILABLE}
 
 
@@ -207,7 +212,7 @@ class AvroConsumer:
     def is_auto_commit(self):
         return self.config.get("enable.auto.commit", True)
 
-    @retry_exception(exceptions={KafkaError}, condition=is_kafka_transient_error)
+    @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error)
     def commit(self, *args, **kwargs):
         with tracer.start_span(name="kafka.commit", kind=SpanKind.CONSUMER):
             self.consumer.commit(*args, **kwargs)

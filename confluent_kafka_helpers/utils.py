@@ -1,5 +1,6 @@
 from functools import wraps
 from typing import Callable
+
 import structlog
 
 logger = structlog.get_logger(__name__)

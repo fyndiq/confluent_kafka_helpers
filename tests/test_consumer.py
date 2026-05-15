@@ -5,7 +5,11 @@ from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka import KafkaException
 from opentelemetry.trace import SpanKind
 
-from confluent_kafka_helpers.consumer import default_error_handler, get_message
+from confluent_kafka_helpers.consumer import (
+    default_error_handler,
+    get_message,
+    is_kafka_transient_error,
+)
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 
 from tests.kafka import KafkaError, KafkaMessage
@@ -143,3 +147,96 @@ class TestErrorHandler:
         error = KafkaError(_code=code)
         with pytest.raises(KafkaException):
             default_error_handler(error)
+
+
+class TestIsKafkaTransientError:
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ConfluentKafkaError.REQUEST_TIMED_OUT,
+            ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+        ],
+    )
+    def test_returns_true_for_transient_codes(self, code):
+        exc = KafkaException(ConfluentKafkaError(code))
+        assert is_kafka_transient_error(exc) is True
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ConfluentKafkaError._ALL_BROKERS_DOWN,
+            ConfluentKafkaError._TIMED_OUT,
+            ConfluentKafkaError._TRANSPORT,
+            ConfluentKafkaError.OFFSET_OUT_OF_RANGE,
+            ConfluentKafkaError.UNKNOWN_TOPIC_OR_PART,
+        ],
+    )
+    def test_returns_false_for_non_transient_codes(self, code):
+        exc = KafkaException(ConfluentKafkaError(code))
+        assert is_kafka_transient_error(exc) is False
+
+    def test_returns_false_for_exception_without_args(self):
+        exc = KafkaException()
+        assert is_kafka_transient_error(exc) is False
+
+
+class TestAvroConsumerCommit:
+    def test_successful_commit_does_not_retry(self, avro_consumer):
+        consumer = avro_consumer()
+        consumer.consumer.commit = Mock()
+
+        consumer.commit()
+
+        assert consumer.consumer.commit.call_count == 1
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ConfluentKafkaError.REQUEST_TIMED_OUT,
+            ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+        ],
+    )
+    def test_retries_on_transient_errors(self, code, avro_consumer):
+        consumer = avro_consumer()
+        transient_error = KafkaException(ConfluentKafkaError(code))
+        consumer.consumer.commit = Mock(side_effect=[transient_error, transient_error, None])
+
+        consumer.commit()
+
+        assert consumer.consumer.commit.call_count == 3
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ConfluentKafkaError.REQUEST_TIMED_OUT,
+            ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+        ],
+    )
+    def test_reraises_after_max_retries_on_transient_error(self, code, avro_consumer):
+        consumer = avro_consumer()
+        transient_error = KafkaException(ConfluentKafkaError(code))
+        consumer.consumer.commit = Mock(side_effect=transient_error)
+
+        with pytest.raises(KafkaException) as exc_info:
+            consumer.commit()
+
+        assert exc_info.value.args[0].code() == code
+        assert consumer.consumer.commit.call_count == 3
+
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ConfluentKafkaError._ALL_BROKERS_DOWN,
+            ConfluentKafkaError.OFFSET_OUT_OF_RANGE,
+            ConfluentKafkaError.UNKNOWN_TOPIC_OR_PART,
+        ],
+    )
+    def test_does_not_retry_on_non_transient_errors(self, code, avro_consumer):
+        consumer = avro_consumer()
+        non_transient = KafkaException(ConfluentKafkaError(code))
+        consumer.consumer.commit = Mock(side_effect=non_transient)
+
+        with pytest.raises(KafkaException):
+            consumer.commit()
+
+        assert consumer.consumer.commit.call_count == 1
