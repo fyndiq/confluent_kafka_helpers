@@ -257,9 +257,7 @@ def _reset_shutdown_state_for_consumer_tests():
 class TestGracefulShutdown:
     @staticmethod
     def _patch_poll_to_be_inexhaustible(consumer, confluent_message):
-        """Default fixtures use side_effect=[msg, StopIteration] which makes
-        the second poll exhaust and produce a RuntimeError (PEP 479). For
-        these tests we need poll to return messages forever so that the
+        """Forthese tests we need poll to return messages forever so that the
         ONLY thing that stops iteration is the shutdown flag."""
         message = confluent_message()
         consumer.consumer.poll = MagicMock(side_effect=lambda timeout: message)
