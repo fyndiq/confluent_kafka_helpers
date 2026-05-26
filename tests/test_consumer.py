@@ -5,12 +5,12 @@ from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka import KafkaException
 from opentelemetry.trace import SpanKind
 
+import confluent_kafka_helpers
 from confluent_kafka_helpers.consumer import (
     default_error_handler,
     get_message,
     is_kafka_transient_error,
 )
-import confluent_kafka_helpers
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 
 from tests.kafka import KafkaError, KafkaMessage
@@ -241,6 +241,8 @@ class TestAvroConsumerCommit:
             consumer.commit()
 
         assert consumer.consumer.commit.call_count == 1
+
+
 @pytest.fixture(autouse=True)
 def _reset_shutdown_state_for_consumer_tests():
     """Tests in TestGracefulShutdown set the module-level flag. Clear it
