@@ -38,7 +38,7 @@ for message in consumer:
 ### Operational notes
 
 - `SIGKILL` cannot be intercepted. Kubernetes will still send it after
-  `terminationGracePeriodSeconds` if the process hasn't exited.
+  `terminationGracePeriodSeconds` if the process hasn't exited. The default value for this in k8s is 30 seconds. If handling a single message can take longer than that the application need to configure a longer `terminationGracePeriodSeconds` in the k8s manifest
 - The flag is process-wide. Tests that exercise it must clear it (see
   `tests/test_signals.py` for the autouse reset fixture pattern).
 
