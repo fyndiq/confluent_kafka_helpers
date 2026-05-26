@@ -106,6 +106,34 @@ class TestEndToEndSignalDelivery:
         assert confluent_kafka_helpers.is_shutdown_requested()
 
 
+class TestSecondSignalForcesExit:
+    """A second SIGTERM or SIGINT while shutdown is already requested must
+    force-exit via sys.exit(0). This is the operator escape hatch for hung
+    handlers or non-consumer processes."""
+
+    def test_second_sigterm_raises_system_exit(self, isolated_handlers):
+        confluent_kafka_helpers.set_shutdown_requested()
+        with pytest.raises(SystemExit) as exc_info:
+            confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+        assert exc_info.value.code == 0
+
+    def test_second_sigint_raises_system_exit(self, isolated_handlers):
+        confluent_kafka_helpers.set_shutdown_requested()
+        with pytest.raises(SystemExit) as exc_info:
+            confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
+        assert exc_info.value.code == 0
+
+    def test_second_signal_does_not_call_chained_handler(self, monkeypatch):
+        existing = MagicMock()
+        existing.__qualname__ = "existing_sigterm"
+        monkeypatch.setattr("confluent_kafka_helpers.existing_termination_handler", existing)
+
+        confluent_kafka_helpers.set_shutdown_requested()
+        with pytest.raises(SystemExit):
+            confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+        existing.assert_not_called()
+
+
 class TestChainedHandlers:
     """Regression tests for the chained-handler case.
 

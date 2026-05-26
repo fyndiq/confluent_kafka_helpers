@@ -8,6 +8,7 @@ NOTE! Exit functions will not be triggered on SIGKILL, SIGSTOP or os._exit()
 """
 
 import signal
+import sys
 import threading
 
 import structlog
@@ -32,7 +33,10 @@ def clear_shutdown_requested():
 
 
 def termination_handler(signum, frame):
-    logger.debug("Received termination signal", signum=signum)
+    if is_shutdown_requested():
+        logger.debug("Received second termination signal, forcing exit")
+        sys.exit(0)
+    logger.debug("Received termination signal, shutting down gracefully", signum=signum)
     set_shutdown_requested()
     if existing_termination_handler:
         logger.debug(
@@ -43,7 +47,10 @@ def termination_handler(signum, frame):
 
 
 def interrupt_handler(signum, frame):
-    logger.info("Received interrupt signal", signum=signum)
+    if is_shutdown_requested():
+        logger.debug("Received second interrupt signal, forcing exit")
+        sys.exit(0)
+    logger.debug("Received interrupt signal, shutting down gracefully", signum=signum)
     set_shutdown_requested()
     if existing_interrupt_handler:
         logger.debug(
