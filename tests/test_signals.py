@@ -74,6 +74,38 @@ class TestSignalsShareTheSameFlag:
         assert confluent_kafka_helpers.is_shutdown_requested()
 
 
+class TestEndToEndSignalDelivery:
+    """End-to-end tests that go through the OS signal machinery rather than
+    invoking the handler functions directly.
+
+    `signal.raise_signal(signum)` sends the signal to the current process;
+    Python then invokes the registered handler between bytecodes. This catches
+    regressions the direct-call tests miss:
+
+    * the import-time `signal.signal(...)` registration silently going away
+      (without registration SIGTERM would terminate the test process and
+      SIGINT would raise `KeyboardInterrupt`, surfaced as a test failure),
+    * signal-safety issues that only show up when Python — not the test —
+      drives handler invocation.
+    """
+
+    def test_termination_handler_is_registered_at_import_time(self):
+        assert signal.getsignal(signal.SIGTERM) is confluent_kafka_helpers.termination_handler
+
+    def test_interrupt_handler_is_registered_at_import_time(self):
+        assert signal.getsignal(signal.SIGINT) is confluent_kafka_helpers.interrupt_handler
+
+    def test_real_sigterm_delivery_sets_shutdown_flag(self, isolated_handlers):
+        assert not confluent_kafka_helpers.is_shutdown_requested()
+        signal.raise_signal(signal.SIGTERM)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+    def test_real_sigint_delivery_sets_shutdown_flag(self, isolated_handlers):
+        assert not confluent_kafka_helpers.is_shutdown_requested()
+        signal.raise_signal(signal.SIGINT)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+
 class TestChainedHandlers:
     """Regression tests for the chained-handler case.
 
