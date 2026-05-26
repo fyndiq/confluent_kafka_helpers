@@ -1,10 +1,11 @@
-from unittest.mock import ANY, Mock, call, patch
+from unittest.mock import ANY, MagicMock, Mock, call, patch
 
 import pytest
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka import KafkaException
 from opentelemetry.trace import SpanKind
 
+import confluent_kafka_helpers
 from confluent_kafka_helpers.consumer import (
     default_error_handler,
     get_message,
@@ -240,3 +241,89 @@ class TestAvroConsumerCommit:
             consumer.commit()
 
         assert consumer.consumer.commit.call_count == 1
+
+
+@pytest.fixture(autouse=True)
+def _reset_shutdown_state_for_consumer_tests():
+    """Tests in TestGracefulShutdown set the module-level flag. Clear it
+    before/after every test so unrelated tests don't observe a stale flag."""
+    flag = getattr(confluent_kafka_helpers, "shutdown_requested", None)
+    if flag is not None:
+        flag.clear()
+    yield
+    flag = getattr(confluent_kafka_helpers, "shutdown_requested", None)
+    if flag is not None:
+        flag.clear()
+
+
+class TestGracefulShutdown:
+    @staticmethod
+    def _patch_poll_to_be_inexhaustible(consumer, confluent_message):
+        """Forthese tests we need poll to return messages forever so that the
+        ONLY thing that stops iteration is the shutdown flag."""
+        message = confluent_message()
+        consumer.consumer.poll = MagicMock(side_effect=lambda timeout: message)
+        consumer._generator = consumer._message_generator()
+
+    def test_generator_stops_when_shutdown_requested_after_first_message(
+        self, avro_consumer, confluent_message
+    ):
+        consumer = avro_consumer()
+        self._patch_poll_to_be_inexhaustible(consumer, confluent_message)
+
+        iterator = iter(consumer)
+        first = next(iterator)
+        assert first.value == b"foobar"
+
+        confluent_kafka_helpers.set_shutdown_requested()
+
+        with pytest.raises(StopIteration):
+            next(iterator)
+
+    def test_for_loop_exits_after_processing_in_flight_message(
+        self, avro_consumer, confluent_message
+    ):
+        consumer = avro_consumer()
+        self._patch_poll_to_be_inexhaustible(consumer, confluent_message)
+
+        processed = []
+        for i, message in enumerate(consumer):
+            processed.append(message)
+            confluent_kafka_helpers.set_shutdown_requested()
+            if i >= 5:
+                pytest.fail(
+                    "Consumer kept yielding messages after shutdown_requested "
+                    "was set — stop-after-current-message is not implemented."
+                )
+
+        assert len(processed) == 1
+
+    def test_consumer_close_runs_after_graceful_shutdown(
+        self, avro_consumer, confluent_message, mocker
+    ):
+        consumer = avro_consumer()
+        self._patch_poll_to_be_inexhaustible(consumer, confluent_message)
+
+        close_spy = mocker.spy(consumer.consumer, "close")
+
+        with consumer as c:
+            for i, _ in enumerate(c):
+                confluent_kafka_helpers.set_shutdown_requested()
+                if i >= 5:
+                    pytest.fail(
+                        "Consumer kept yielding messages after shutdown_requested "
+                        "was set — stop-after-current-message is not implemented."
+                    )
+
+        close_spy.assert_called_once()
+
+    def test_no_messages_yielded_if_shutdown_requested_before_iteration(
+        self, avro_consumer, confluent_message
+    ):
+        consumer = avro_consumer()
+        self._patch_poll_to_be_inexhaustible(consumer, confluent_message)
+
+        confluent_kafka_helpers.set_shutdown_requested()
+
+        with pytest.raises(StopIteration):
+            next(iter(consumer))

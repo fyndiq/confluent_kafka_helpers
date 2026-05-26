@@ -1,0 +1,192 @@
+"""
+Contract tests for graceful shutdown on SIGTERM / SIGINT.
+The desired behaviour is "stop-after-current-message":
+
+* SIGTERM / SIGINT must NOT raise — it just records that shutdown was
+  requested. In-flight Python code (the user's message handler) runs to
+  completion.
+* The consumer loop checks the flag between messages and exits cleanly.
+
+The flag itself is exposed as `confluent_kafka_helpers.shutdown_requested` so
+that user code (and the consumer loop) can poll it.
+"""
+
+import signal
+import threading
+from unittest.mock import MagicMock
+
+import pytest
+
+import confluent_kafka_helpers
+
+
+@pytest.fixture
+def isolated_handlers(monkeypatch):
+    """Strip pre-existing SIGTERM/SIGINT handlers captured at module import
+    time (e.g. pytest's own SIGINT handler). Without this, calls to the
+    library handlers chain into pytest internals and the tests become
+    non-deterministic depending on import order."""
+    for name in ("existing_termination_handler", "existing_interrupt_handler"):
+        if hasattr(confluent_kafka_helpers, name):
+            monkeypatch.setattr(f"confluent_kafka_helpers.{name}", None)
+
+
+class TestShutdownRequestedFlag:
+    def test_module_exposes_shutdown_requested_event(self):
+        assert hasattr(confluent_kafka_helpers, "shutdown_requested"), (
+            "confluent_kafka_helpers must expose a public `shutdown_requested` "
+            "flag so the consume loop can check it between messages."
+        )
+        assert isinstance(confluent_kafka_helpers.shutdown_requested, threading.Event), (
+            "`shutdown_requested` should be a `threading.Event` so it is "
+            "thread-safe and has the standard is_set/set/clear API."
+        )
+
+    def test_shutdown_requested_is_initially_unset(self):
+        assert not confluent_kafka_helpers.is_shutdown_requested()
+
+
+class TestTerminationHandler:
+    def test_first_signal_does_not_raise(self, isolated_handlers):
+        confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+
+    def test_first_signal_sets_shutdown_flag(self, isolated_handlers):
+        confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+
+class TestInterruptHandler:
+    def test_first_signal_does_not_raise(self, isolated_handlers):
+        confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
+
+    def test_first_signal_sets_shutdown_flag(self, isolated_handlers):
+        confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+
+class TestSignalsShareTheSameFlag:
+    def test_sigterm_sets_the_same_flag_sigint_does(self, isolated_handlers):
+        confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+    def test_sigint_sets_the_same_flag_sigterm_does(self, isolated_handlers):
+        confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+
+class TestEndToEndSignalDelivery:
+    """End-to-end tests that go through the OS signal machinery rather than
+    invoking the handler functions directly.
+
+    `signal.raise_signal(signum)` sends the signal to the current process;
+    Python then invokes the registered handler between bytecodes. This catches
+    regressions the direct-call tests miss:
+
+    * the import-time `signal.signal(...)` registration silently going away
+      (without registration SIGTERM would terminate the test process and
+      SIGINT would raise `KeyboardInterrupt`, surfaced as a test failure),
+    * signal-safety issues that only show up when Python — not the test —
+      drives handler invocation.
+    """
+
+    def test_termination_handler_is_registered_at_import_time(self):
+        assert signal.getsignal(signal.SIGTERM) is confluent_kafka_helpers.termination_handler
+
+    def test_interrupt_handler_is_registered_at_import_time(self):
+        assert signal.getsignal(signal.SIGINT) is confluent_kafka_helpers.interrupt_handler
+
+    def test_real_sigterm_delivery_sets_shutdown_flag(self, isolated_handlers):
+        assert not confluent_kafka_helpers.is_shutdown_requested()
+        signal.raise_signal(signal.SIGTERM)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+    def test_real_sigint_delivery_sets_shutdown_flag(self, isolated_handlers):
+        assert not confluent_kafka_helpers.is_shutdown_requested()
+        signal.raise_signal(signal.SIGINT)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+
+class TestSecondSignalForcesExit:
+    """A second SIGTERM or SIGINT while shutdown is already requested must
+    force-exit via sys.exit(0). This is the operator escape hatch for hung
+    handlers or non-consumer processes."""
+
+    def test_second_sigterm_raises_system_exit(self, isolated_handlers):
+        confluent_kafka_helpers.set_shutdown_requested()
+        with pytest.raises(SystemExit) as exc_info:
+            confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+        assert exc_info.value.code == 0
+
+    def test_second_sigint_raises_system_exit(self, isolated_handlers):
+        confluent_kafka_helpers.set_shutdown_requested()
+        with pytest.raises(SystemExit) as exc_info:
+            confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
+        assert exc_info.value.code == 0
+
+    def test_second_signal_does_not_call_chained_handler(self, monkeypatch):
+        existing = MagicMock()
+        existing.__qualname__ = "existing_sigterm"
+        monkeypatch.setattr("confluent_kafka_helpers.existing_termination_handler", existing)
+
+        confluent_kafka_helpers.set_shutdown_requested()
+        with pytest.raises(SystemExit):
+            confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+        existing.assert_not_called()
+
+
+class TestChainedHandlers:
+    """Regression tests for the chained-handler case.
+
+    When this library is imported AFTER another framework (ddtrace, OTel SDK,
+    gunicorn, uvicorn, ...) has already installed a SIGTERM/SIGINT handler,
+    that handler is captured in `existing_*_handler` at import time and the
+    library's handler chains to it.
+
+    Both the chained handler AND the `shutdown_requested` flag must run.
+    If we only chain and skip the flag, the consumer loop never sees the
+    shutdown request and graceful shutdown silently breaks in any service
+    that pulls in another signal-handling library — which is the common case
+    in production.
+    """
+
+    @staticmethod
+    def _make_handler_mock(qualname):
+        # `__qualname__` is read for the debug log line; give it a real string
+        # so structlog doesn't serialise a nested Mock.
+        handler = MagicMock()
+        handler.__qualname__ = qualname
+        return handler
+
+    def test_termination_calls_existing_handler_and_sets_flag(self, monkeypatch):
+        existing = self._make_handler_mock("existing_sigterm")
+        monkeypatch.setattr("confluent_kafka_helpers.existing_termination_handler", existing)
+
+        confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+
+        existing.assert_called_once_with(signal.SIGTERM, None)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+    def test_interrupt_calls_existing_handler_and_sets_flag(self, monkeypatch):
+        existing = self._make_handler_mock("existing_sigint")
+        monkeypatch.setattr("confluent_kafka_helpers.existing_interrupt_handler", existing)
+
+        confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
+
+        existing.assert_called_once_with(signal.SIGINT, None)
+        assert confluent_kafka_helpers.is_shutdown_requested()
+
+    def test_flag_is_set_before_existing_handler_runs(self, monkeypatch):
+        """Order matters: if the chained handler raises (e.g. an aggressive
+        framework calls sys.exit), we still want the consumer loop to know
+        shutdown was requested. So the flag must be set BEFORE chaining."""
+        observed = {}
+
+        def existing(signum, frame):
+            observed["flag_was_set"] = confluent_kafka_helpers.is_shutdown_requested()
+
+        existing.__qualname__ = "existing_sigterm"
+        monkeypatch.setattr("confluent_kafka_helpers.existing_termination_handler", existing)
+
+        confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
+
+        assert observed["flag_was_set"] is True

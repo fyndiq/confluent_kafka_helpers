@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 
+import confluent_kafka_helpers
 from confluent_kafka_helpers import consumer
 
 from tests import config
@@ -79,3 +80,11 @@ def avro_schema_registry():
             patch("confluent_kafka_helpers.loader.AvroSchemaRegistry", schema_registry)
         )
         yield schema_registry
+
+
+@pytest.fixture(autouse=True)
+def _reset_shutdown_state():
+    """Clear the module-level shutdown flag before and after every test."""
+    confluent_kafka_helpers.clear_shutdown_requested()
+    yield
+    confluent_kafka_helpers.clear_shutdown_requested()
