@@ -26,11 +26,11 @@ flag is set.
 Long-running handlers can check the flag and bail out early between subtasks:
 
 ```python
-from confluent_kafka_helpers import shutdown_requested
+from confluent_kafka_helpers import is_shutdown_requested
 
 for message in consumer:
     do_step_one(message)
-    if shutdown_requested.is_set():
+    if is_shutdown_requested():
         break
     do_step_two(message)
 ```

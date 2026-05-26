@@ -275,7 +275,7 @@ class TestGracefulShutdown:
         first = next(iterator)
         assert first.value == b"foobar"
 
-        confluent_kafka_helpers.shutdown_requested.set()
+        confluent_kafka_helpers.set_shutdown_requested()
 
         with pytest.raises(StopIteration):
             next(iterator)
@@ -289,7 +289,7 @@ class TestGracefulShutdown:
         processed = []
         for i, message in enumerate(consumer):
             processed.append(message)
-            confluent_kafka_helpers.shutdown_requested.set()
+            confluent_kafka_helpers.set_shutdown_requested()
             if i >= 5:
                 pytest.fail(
                     "Consumer kept yielding messages after shutdown_requested "
@@ -308,7 +308,7 @@ class TestGracefulShutdown:
 
         with consumer as c:
             for i, _ in enumerate(c):
-                confluent_kafka_helpers.shutdown_requested.set()
+                confluent_kafka_helpers.set_shutdown_requested()
                 if i >= 5:
                     pytest.fail(
                         "Consumer kept yielding messages after shutdown_requested "
@@ -323,7 +323,7 @@ class TestGracefulShutdown:
         consumer = avro_consumer()
         self._patch_poll_to_be_inexhaustible(consumer, confluent_message)
 
-        confluent_kafka_helpers.shutdown_requested.set()
+        confluent_kafka_helpers.set_shutdown_requested()
 
         with pytest.raises(StopIteration):
             next(iter(consumer))

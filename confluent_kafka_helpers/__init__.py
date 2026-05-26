@@ -19,9 +19,21 @@ existing_interrupt_handler = signal.getsignal(signal.SIGINT)
 shutdown_requested = threading.Event()
 
 
-def termination_handler(signum, frame):
-    logger.info("Received termination signal", signum=signum)
+def is_shutdown_requested() -> bool:
+    return shutdown_requested.is_set()
+
+
+def set_shutdown_requested():
     shutdown_requested.set()
+
+
+def clear_shutdown_requested():
+    shutdown_requested.clear()
+
+
+def termination_handler(signum, frame):
+    logger.debug("Received termination signal", signum=signum)
+    set_shutdown_requested()
     if existing_termination_handler:
         logger.debug(
             "Using existing termination handler",
@@ -32,7 +44,7 @@ def termination_handler(signum, frame):
 
 def interrupt_handler(signum, frame):
     logger.info("Received interrupt signal", signum=signum)
-    shutdown_requested.set()
+    set_shutdown_requested()
     if existing_interrupt_handler:
         logger.debug(
             "Using existing interrupt handler",

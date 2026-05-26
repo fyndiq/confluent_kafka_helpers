@@ -20,18 +20,6 @@ import pytest
 import confluent_kafka_helpers
 
 
-@pytest.fixture(autouse=True)
-def _reset_shutdown_state():
-    """Clear the module-level shutdown flag before and after every test."""
-    flag = getattr(confluent_kafka_helpers, "shutdown_requested", None)
-    if flag is not None:
-        flag.clear()
-    yield
-    flag = getattr(confluent_kafka_helpers, "shutdown_requested", None)
-    if flag is not None:
-        flag.clear()
-
-
 @pytest.fixture
 def isolated_handlers(monkeypatch):
     """Strip pre-existing SIGTERM/SIGINT handlers captured at module import
@@ -55,7 +43,7 @@ class TestShutdownRequestedFlag:
         )
 
     def test_shutdown_requested_is_initially_unset(self):
-        assert not confluent_kafka_helpers.shutdown_requested.is_set()
+        assert not confluent_kafka_helpers.is_shutdown_requested()
 
 
 class TestTerminationHandler:
@@ -64,7 +52,7 @@ class TestTerminationHandler:
 
     def test_first_signal_sets_shutdown_flag(self, isolated_handlers):
         confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
-        assert confluent_kafka_helpers.shutdown_requested.is_set()
+        assert confluent_kafka_helpers.is_shutdown_requested()
 
 
 class TestInterruptHandler:
@@ -73,17 +61,17 @@ class TestInterruptHandler:
 
     def test_first_signal_sets_shutdown_flag(self, isolated_handlers):
         confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
-        assert confluent_kafka_helpers.shutdown_requested.is_set()
+        assert confluent_kafka_helpers.is_shutdown_requested()
 
 
 class TestSignalsShareTheSameFlag:
     def test_sigterm_sets_the_same_flag_sigint_does(self, isolated_handlers):
         confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
-        assert confluent_kafka_helpers.shutdown_requested.is_set()
+        assert confluent_kafka_helpers.is_shutdown_requested()
 
     def test_sigint_sets_the_same_flag_sigterm_does(self, isolated_handlers):
         confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
-        assert confluent_kafka_helpers.shutdown_requested.is_set()
+        assert confluent_kafka_helpers.is_shutdown_requested()
 
 
 class TestChainedHandlers:
@@ -116,7 +104,7 @@ class TestChainedHandlers:
         confluent_kafka_helpers.termination_handler(signal.SIGTERM, None)
 
         existing.assert_called_once_with(signal.SIGTERM, None)
-        assert confluent_kafka_helpers.shutdown_requested.is_set()
+        assert confluent_kafka_helpers.is_shutdown_requested()
 
     def test_interrupt_calls_existing_handler_and_sets_flag(self, monkeypatch):
         existing = self._make_handler_mock("existing_sigint")
@@ -125,7 +113,7 @@ class TestChainedHandlers:
         confluent_kafka_helpers.interrupt_handler(signal.SIGINT, None)
 
         existing.assert_called_once_with(signal.SIGINT, None)
-        assert confluent_kafka_helpers.shutdown_requested.is_set()
+        assert confluent_kafka_helpers.is_shutdown_requested()
 
     def test_flag_is_set_before_existing_handler_runs(self, monkeypatch):
         """Order matters: if the chained handler raises (e.g. an aggressive
@@ -134,7 +122,7 @@ class TestChainedHandlers:
         observed = {}
 
         def existing(signum, frame):
-            observed["flag_was_set"] = confluent_kafka_helpers.shutdown_requested.is_set()
+            observed["flag_was_set"] = confluent_kafka_helpers.is_shutdown_requested()
 
         existing.__qualname__ = "existing_sigterm"
         monkeypatch.setattr("confluent_kafka_helpers.existing_termination_handler", existing)
