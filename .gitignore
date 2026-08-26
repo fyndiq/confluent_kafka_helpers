@@ -14,3 +14,6 @@ build
 confluent_kafka_helpers.egg-info
 coverage.xml
 dist
+.direnv
+.envrc.local
+shell.nix
