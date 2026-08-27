@@ -93,7 +93,7 @@ def test_avro_producer_adds_tracing(tracer, avro_producer):
         call.start_span().__enter__().set_attribute("server.port", "9092"),
         call.start_span()
         .__enter__()
-        .set_attribute("messaging.producer.service.name", "unknown_service"),
+        .set_attribute("confluent_kafka_helpers.producer.service.name", "unknown_service"),
         call.start_span().__exit__(None, None, None),
     ]
     tracer.assert_has_calls(expected_calls)
@@ -146,4 +146,22 @@ def test_producer_merges_context_and_explicit_headers(
         key_schema=key_schema,
         value_schema=value_schema,
         headers=expected_headers,
+    )
+
+
+@patch("confluent_kafka_helpers.producer.tracer")
+@patch("confluent_kafka_helpers.producer.get_propagated_headers")
+def test_producer_adds_propagated_headers_to_span(get_propagated_headers, tracer, avro_producer):
+    get_propagated_headers.return_value = {
+        "x-request-id": "abc-123",
+        "correlation_id": "xyz-789",
+    }
+
+    avro_producer.produce(key="a", value="1", topic="a")
+
+    tracer.start_span().__enter__().set_attribute.assert_any_call(
+        "confluent_kafka_helpers.header.x-request-id", "abc-123"
+    )
+    tracer.start_span().__enter__().set_attribute.assert_any_call(
+        "messaging.message.conversation_id", "xyz-789"
     )

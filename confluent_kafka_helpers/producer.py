@@ -151,13 +151,18 @@ class AvroProducer(ConfluentAvroProducer):
             if key:
                 span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_KEY, key)
 
+            for header_key, header_value in propagated_headers.items():
+                span.set_attribute(f"{attrs.PROPAGATED_HEADER_PREFIX}{header_key}", header_value)
+            if correlation_id := propagated_headers.get(attrs.CORRELATION_ID_HEADER):
+                span.set_attribute(attrs.MESSAGING_MESSAGE_CONVERSATION_ID, correlation_id)
+
             server_address, *server_port = self.bootstrap_servers.split(":")
             span.set_attribute(attrs.SERVER_ADDRESS, server_address)
             if server_port:
                 span.set_attribute(attrs.SERVER_PORT, server_port[0])
 
             span.set_attribute(
-                attrs.MESSAGING_PRODUCER_SERVICE_NAME,
+                attrs.PRODUCER_SERVICE_NAME,
                 datadog.get_datadog_service_name(),
             )
 

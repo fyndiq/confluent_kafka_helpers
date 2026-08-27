@@ -63,6 +63,27 @@ class TestAvroConsumer:
         ]
         tracer.assert_has_calls(expected_calls)
 
+    @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_consume_messages_adds_propagated_headers_to_span(self, tracer, avro_consumer):
+        headers = [
+            ("x-request-id", b"abc-123"),
+            ("correlation_id", b"xyz-789"),
+            ("foo", b"bar"),
+        ]
+        consumer = avro_consumer(
+            config_override={"headers.propagate": ["x-request-id", "correlation_id"]},
+            headers=headers,
+        )
+
+        next(iter(consumer))
+
+        tracer.start_span().__enter__().set_attribute.assert_any_call(
+            "confluent_kafka_helpers.header.x-request-id", "abc-123"
+        )
+        tracer.start_span().__enter__().set_attribute.assert_any_call(
+            "messaging.message.conversation_id", "xyz-789"
+        )
+
     def test_context_manager_close_consumer(self, mocker, avro_consumer):
         consumer = avro_consumer()
         mock_consumer = mocker.spy(consumer, "consumer")

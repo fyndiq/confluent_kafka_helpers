@@ -40,6 +40,9 @@ MESSAGING_DESTINATION_PARTITION_ID = messaging_attributes.MESSAGING_DESTINATION_
 MESSAGING_KAFKA_MESSAGE_KEY = messaging_attributes.MESSAGING_KAFKA_MESSAGE_KEY
 MESSAGING_KAFKA_MESSAGE_OFFSET = messaging_attributes.MESSAGING_KAFKA_MESSAGE_OFFSET
 MESSAGING_KAFKA_MESSAGE_TOMBSTONE = messaging_attributes.MESSAGING_KAFKA_MESSAGE_TOMBSTONE
+MESSAGING_MESSAGE_CONVERSATION_ID = messaging_attributes.MESSAGING_MESSAGE_CONVERSATION_ID
 
 # custom attributes not part of the semantic ceonvention
-MESSAGING_PRODUCER_SERVICE_NAME = "messaging.producer.service.name"
+PRODUCER_SERVICE_NAME = "confluent_kafka_helpers.producer.service.name"
+PROPAGATED_HEADER_PREFIX = "confluent_kafka_helpers.header."
+CORRELATION_ID_HEADER = "correlation_id"
