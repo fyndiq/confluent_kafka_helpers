@@ -34,7 +34,7 @@ class Message:
         return f"Message(" f"value={self.value}, " f"_raw={self._raw}, " f"_meta={self._meta}" f")"
 
     def __bool__(self):
-        return True if self.value else False
+        return bool(self.value)
 
     def __eq__(self, other):
         return self._raw == other._raw
