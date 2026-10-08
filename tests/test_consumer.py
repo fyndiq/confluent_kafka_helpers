@@ -7,12 +7,16 @@ from opentelemetry.trace import SpanKind
 
 import confluent_kafka_helpers
 from confluent_kafka_helpers.consumer import (
+    AvroConsumer,
+    AvroLazyConsumer,
     default_error_handler,
     get_message,
     is_kafka_transient_error,
 )
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
+from confluent_kafka_helpers.schema_registry import CONSUMER_RETRY_TIMEOUT, SchemaRegistryClient
 
+from tests import config
 from tests.kafka import KafkaError, KafkaMessage
 
 
@@ -22,6 +26,36 @@ class TestAvroConsumer:
         assert consumer.topics == ["a"]
         consumer._mock_consumer.assert_called_once()
         consumer.consumer.subscribe.assert_called_once_with(["a"])
+
+    def test_passes_retrying_schema_registry_client_to_confluent(self, avro_consumer):
+        consumer = avro_consumer()
+
+        (consumer_config,), kwargs = consumer._mock_consumer.call_args
+        assert not any(key.startswith("schema.registry.") for key in consumer_config)
+        assert consumer_config["group.id"] == 1
+        schema_registry = kwargs["schema_registry"]
+        assert isinstance(schema_registry, SchemaRegistryClient)
+        assert schema_registry.url == "http://localhost:8081"
+        assert schema_registry.retry_timeout == CONSUMER_RETRY_TIMEOUT == 120
+        assert consumer.config["schema.registry.url"] == "http://localhost:8081"
+
+    def test_schema_registry_retry_timeout_is_configurable(self, avro_consumer):
+        consumer = avro_consumer(config_override={"schema.registry.retry.timeout": 30})
+
+        (consumer_config,), kwargs = consumer._mock_consumer.call_args
+        assert "schema.registry.retry.timeout" not in consumer_config
+        assert kwargs["schema_registry"].retry_timeout == 30
+
+    def test_keeps_explicit_schema_registry(self, confluent_avro_consumer):
+        mock_consumer = confluent_avro_consumer()
+        explicit = MagicMock()
+
+        with patch("confluent_kafka_helpers.consumer.ConfluentAvroConsumer", mock_consumer):
+            AvroConsumer(dict(config.Config.KAFKA_CONSUMER_CONFIG), schema_registry=explicit)
+
+        (consumer_config,), kwargs = mock_consumer.call_args
+        assert kwargs["schema_registry"] is explicit
+        assert "schema.registry.url" not in consumer_config
 
     def test_consume_messages(self, avro_consumer):
         with pytest.raises(RuntimeError):
@@ -348,3 +382,18 @@ class TestGracefulShutdown:
 
         with pytest.raises(StopIteration):
             next(iter(consumer))
+
+
+class TestAvroLazyConsumer:
+    def test_passes_retrying_schema_registry_client_to_confluent(self):
+        confluent_init = MagicMock(return_value=None)
+
+        with patch(
+            "confluent_kafka_helpers.consumer.ConfluentAvroConsumer.__init__", confluent_init
+        ):
+            AvroLazyConsumer(dict(config.Config.KAFKA_CONSUMER_CONFIG))
+
+        (consumer_config,), kwargs = confluent_init.call_args
+        assert "schema.registry.url" not in consumer_config
+        assert isinstance(kwargs["schema_registry"], SchemaRegistryClient)
+        assert kwargs["schema_registry"].retry_timeout == CONSUMER_RETRY_TIMEOUT

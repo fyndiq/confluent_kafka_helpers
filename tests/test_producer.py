@@ -5,6 +5,7 @@ import pytest
 from opentelemetry.trace import SpanKind
 
 from confluent_kafka_helpers import producer
+from confluent_kafka_helpers.schema_registry import DEFAULT_RETRY_TIMEOUT, SchemaRegistryClient
 
 from tests import config
 
@@ -165,3 +166,29 @@ def test_producer_adds_propagated_headers_to_span(get_propagated_headers, tracer
     tracer.start_span().__enter__().set_attribute.assert_any_call(
         "messaging.message.conversation_id", "xyz-789"
     )
+
+
+@patch("confluent_kafka_helpers.producer.AvroProducer._close", MagicMock())
+@pytest.mark.parametrize(
+    "override, retry_timeout",
+    [({}, DEFAULT_RETRY_TIMEOUT), ({"schema.registry.retry.timeout": 3}, 3)],
+)
+def test_avro_producer_passes_retrying_schema_registry_client_to_confluent(
+    avro_schema_registry, override, retry_timeout
+):
+    producer_config = {
+        **config.Config.KAFKA_PRODUCER_CONFIG,
+        "client.id": "<client-id>",
+        **override,
+    }
+    confluent_init = MagicMock(return_value=None)
+
+    with patch("confluent_kafka_helpers.producer.ConfluentAvroProducer.__init__", confluent_init):
+        producer.AvroProducer(producer_config, schema_registry=avro_schema_registry)
+
+    (passed_config,), kwargs = confluent_init.call_args
+    assert not any(key.startswith("schema.registry.") for key in passed_config)
+    schema_registry = kwargs["schema_registry"]
+    assert isinstance(schema_registry, SchemaRegistryClient)
+    assert schema_registry.url == "http://localhost:8081"
+    assert schema_registry.retry_timeout == retry_timeout == (10 if not override else 3)
