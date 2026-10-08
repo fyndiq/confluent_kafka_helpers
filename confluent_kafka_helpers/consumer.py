@@ -13,6 +13,11 @@ from confluent_kafka_helpers.context import clear_propagated_headers, set_propag
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.message import Message, decode_kafka_headers
 from confluent_kafka_helpers.metrics import base_metric, statsd
+from confluent_kafka_helpers.schema_registry import (
+    CONSUMER_RETRY_TIMEOUT,
+    SchemaRegistryClient,
+    split_schema_registry_config,
+)
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import tracer
 from confluent_kafka_helpers.utils import retry_exception
@@ -48,6 +53,24 @@ def default_error_handler(kafka_error):
     else:
         statsd.increment(f"{base_metric}.consumer.message.count.error")
         raise KafkaException(kafka_error)
+
+
+def _with_schema_registry(config: dict, kwargs: dict) -> tuple[dict, dict]:
+    """
+    Move `schema.registry.*` settings into a retrying `SchemaRegistryClient`.
+
+    Returns the Kafka-only config and the constructor kwargs for confluent's AvroConsumer. An
+    explicitly passed `schema_registry` is kept.
+    """
+    registry_config, consumer_config = split_schema_registry_config(config)
+    if kwargs.get("schema_registry") is None:
+        kwargs = {
+            **kwargs,
+            "schema_registry": SchemaRegistryClient(
+                registry_config, retry_timeout=CONSUMER_RETRY_TIMEOUT
+            ),
+        }
+    return consumer_config, kwargs
 
 
 def is_kafka_transient_error(exc: KafkaException):
@@ -93,7 +116,8 @@ class AvroConsumer:
         self.propagate_header_keys = self.config.pop("headers.propagate", [])
 
         logger.info("Initializing consumer", config=self.config)
-        self.consumer = ConfluentAvroConsumer(self.config, logger=logger, **kwargs)
+        consumer_config, kwargs = _with_schema_registry(self.config, kwargs)
+        self.consumer = ConfluentAvroConsumer(consumer_config, logger=logger, **kwargs)
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()
@@ -237,6 +261,10 @@ class AvroLazyConsumer(ConfluentAvroConsumer):
     We use this approach, because we want to check the key messages before
     decoding the message, this will avoid performance issues.
     """
+
+    def __init__(self, config, **kwargs):
+        config, kwargs = _with_schema_registry(config, kwargs)
+        super().__init__(config, **kwargs)
 
     def poll(self, timeout=None):
         if timeout is None:

@@ -12,7 +12,12 @@ from confluent_kafka_helpers.callbacks import (
     get_callback,
 )
 from confluent_kafka_helpers.context import get_propagated_headers
-from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
+from confluent_kafka_helpers.schema_registry import (
+    AvroSchemaRegistry,
+    SchemaNotFound,
+    SchemaRegistryClient,
+    split_schema_registry_config,
+)
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import datadog, tracer
 
@@ -69,7 +74,13 @@ class AvroProducer(ConfluentAvroProducer):
         logger.info("Initializing producer", config=config)
         atexit.register(self._close)
 
-        super().__init__(config, logger=logger, **kwargs)
+        registry_config, producer_config = split_schema_registry_config(config)
+        super().__init__(
+            producer_config,
+            schema_registry=SchemaRegistryClient(registry_config),
+            logger=logger,
+            **kwargs,
+        )
 
     def _close(self):
         logger.info("Flushing producer")

@@ -42,6 +42,34 @@ for message in consumer:
 - The flag is process-wide. Tests that exercise it must clear it (see
   `tests/test_signals.py` for the autouse reset fixture pattern).
 
+## Schema registry retries
+
+`AvroConsumer`, `AvroLazyConsumer`, `AvroProducer` and `AvroSchemaRegistry` talk to the
+schema registry through `confluent_kafka_helpers.schema_registry.SchemaRegistryClient`, a
+subclass of confluent's legacy `CachedSchemaRegistryClient`.
+
+A registry response with a 5xx status or a non-JSON body (an empty body, a proxy error page) is
+retried with exponential backoff: 0.5s doubling, capped at 10s per sleep. Other responses are
+returned as before, so a 404 still means "not found".
+
+| Client | Default budget |
+|---|---|
+| `AvroConsumer`, `AvroLazyConsumer` | 120s |
+| `AvroProducer`, `AvroSchemaRegistry` | 10s |
+
+Consumers block on the schema lookup anyway, so they wait long enough to ride out a registry
+restart without crashing the process. Producers can sit on a request path, so they give up
+quickly. Override the budget per client with `schema.registry.retry.timeout` (seconds) in the
+consumer or producer config.
+
+When the budget runs out the client raises `ClientError` with the registry's status and body,
+for example `Schema registry GET /schemas/ids/399 failed: HTTP 502: '<html>Bad Gateway</html>'`.
+During decoding this surfaces as `SerializerError: unable to fetch schema with id 399: ...`.
+
+The upstream client has a fallback that reads `response.content` from a urllib3 response,
+which has no such attribute, so one non-JSON response used to raise `AttributeError`. This
+client replaces that fallback.
+
 ## OpenTelemetry (OTEL)
 
 ### Test generation of spans
