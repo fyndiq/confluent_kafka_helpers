@@ -433,3 +433,37 @@ class TestAvroConsumerBatches:
             next(batches)
 
         assert inspect.getgeneratorstate(batches) == inspect.GEN_CLOSED
+
+    def test_flushes_partial_batch_after_max_wait_since_first_message(
+        self, batch_consumer, confluent_message
+    ):
+        message = confluent_message()
+        clock = FakeClock()
+        # each poll advances the clock 0.5s; first message at t=0.5 -> flush due at t=1.5
+        consumer = batch_consumer(
+            [message, None, None, message],
+            config_override={"batch_max_wait": 1.0},
+            clock=clock,
+            tick=0.5,
+        )
+
+        with patch("confluent_kafka_helpers.consumer.monotonic", clock):
+            batches = list(consumer.batches())
+
+        assert [len(b) for b in batches] == [1, 1]
+
+    def test_non_blocking_yields_empty_batch_after_max_wait(
+        self, batch_consumer, confluent_message
+    ):
+        clock = FakeClock()
+        consumer = batch_consumer(
+            [None, None, None, confluent_message()],
+            config_override={"batch_max_wait": 1.0, "non_blocking": True},
+            clock=clock,
+            tick=0.5,
+        )
+
+        with patch("confluent_kafka_helpers.consumer.monotonic", clock):
+            batches = list(consumer.batches())
+
+        assert [len(b) for b in batches] == [0, 1]

@@ -1,5 +1,6 @@
 import socket
 from functools import partial
+from time import monotonic
 from typing import Callable, Iterator
 
 import structlog
@@ -231,15 +232,22 @@ class AvroConsumer:
         logger.info("Shutdown requested, exiting consumer loop")
 
     def _collect_batch(self) -> tuple[list, bool]:
-        """Poll until the batch is full. Returns (raw messages, stop)."""
+        """Poll until the batch is full or due. Returns (raw messages, stop)."""
         batch: list = []
+        # non-blocking: hand control back every batch_max_wait, even without messages.
+        # blocking: the timer starts at the first message, so idle consumers never yield.
+        deadline = monotonic() + self.batch_max_wait if self.non_blocking else None
         while len(batch) < self.batch_max_size:
             if is_shutdown_requested():
                 return batch, True
+            if deadline is not None and monotonic() >= deadline:
+                break
             message = self._get_message()
             if message is None:
                 continue
             batch.append(message)
+            if deadline is None:
+                deadline = monotonic() + self.batch_max_wait
         return batch, False
 
     def _get_topics(self, config):
