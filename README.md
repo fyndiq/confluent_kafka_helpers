@@ -42,6 +42,37 @@ for message in consumer:
 - The flag is process-wide. Tests that exercise it must clear it (see
   `tests/test_signals.py` for the autouse reset fixture pattern).
 
+## Batch consumption
+
+`AvroConsumer.batches()` yields lists of messages, e.g. for bulk writes:
+
+```python
+consumer = AvroConsumer({
+    ...,
+    "batch_max_size": 100,  # default 100
+    "batch_max_wait": 1.0,  # seconds, default 1.0
+})
+
+for batch in consumer.batches():
+    bulk_write([message.value for message in batch])
+    consumer.commit(asynchronous=False)
+```
+
+- A batch is yielded when it has `batch_max_size` messages, or `batch_max_wait` seconds after
+  its first message, whichever comes first. An idle consumer yields nothing
+  (with `non_blocking`, it yields `[]` every `batch_max_wait`).
+- On shutdown (or EOF with `stop_on_eof`) the partial batch is yielded, then iteration stops.
+- `commit()` without arguments commits everything polled so far, i.e. the whole batch.
+- Don't mix `batches()` and per-message iteration on the same consumer.
+
+### Tracing
+
+Each batch gets one `kafka.consume` span. It starts a new trace and links to every message's
+trace context. Propagated headers are not set; read them from `message._meta.headers`.
+
+OpenTelemetry keeps at most 128 links per span by default and silently drops the rest. If you raise
+`batch_max_size` above 128, also raise `OTEL_SPAN_LINK_COUNT_LIMIT`.
+
 ## OpenTelemetry (OTEL)
 
 ### Test generation of spans
