@@ -1,5 +1,6 @@
 import socket
 from functools import partial
+from time import time
 from typing import Callable
 
 import structlog
@@ -147,9 +148,9 @@ class AvroConsumer:
 
             statsd.increment(f"{base_metric}.consumer.message.count.total")
 
-            value, resource_name = message.value(), message.topic()
+            value, topic = message.value(), message.topic()
             message_class = value.get("class") if isinstance(value, dict) else None
-            resource_name = f"{message.topic()}:{message_class}" if message_class else resource_name
+            resource_name = f"{topic}:{message_class}" if message_class else topic
 
             headers = decode_kafka_headers(message.headers())
             propagated_headers = {
@@ -204,6 +205,26 @@ class AvroConsumer:
                     span.set_attribute(attrs.SERVER_PORT, server_port[0])
 
                 yield message
+
+                if action_started_at := propagated_headers.get("action_started_at") and (
+                    primary_action_type := propagated_headers.get("primary_action_type")
+                ):
+                    try:
+                        latency_ms = int(time() * 1000) - int(action_started_at)
+                    except (TypeError, ValueError):
+                        latency_ms = None
+
+                    if latency_ms is not None:
+                        tags = [
+                            f"consumer_group:{self.group_id}",
+                            f"topic:{topic}",
+                            f"primary_action_type:{primary_action_type}",
+                        ]
+                        if message_class:
+                            tags.append(f"message_class:{message_class}")
+                        statsd.distribution(
+                            f"{base_metric}.consumer.action_latency", latency_ms, tags=tags
+                        )
 
                 clear_propagated_headers()
         logger.info("Shutdown requested, exiting consumer loop")
