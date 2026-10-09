@@ -4,6 +4,7 @@ from unittest.mock import ANY, MagicMock, Mock, call, patch
 import pytest
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka import KafkaException
+from opentelemetry.context import Context
 from opentelemetry.trace import SpanKind
 
 import confluent_kafka_helpers
@@ -491,3 +492,66 @@ class TestAvroConsumerBatches:
                 yielded.append(batch)
 
         assert yielded == []
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_one_span_per_batch_linked_to_each_message(
+        self, tracer, batch_consumer, confluent_message
+    ):
+        tracer.extract_links.return_value = ["<link>"]
+        message = confluent_message()
+        consumer = batch_consumer([message] * 3)
+
+        list(consumer.batches())
+
+        tracer.start_span.assert_called_once_with(
+            name="kafka.consume",
+            kind=SpanKind.CONSUMER,
+            resource_name="test",
+            context=ANY,
+            links=["<link>", "<link>", "<link>"],
+        )
+        assert tracer.start_span.call_args.kwargs["context"] == Context()  # new root trace
+        span = tracer.start_span.return_value.__enter__.return_value
+        span.set_attribute.assert_any_call("messaging.batch.message_count", 3)
+        span.set_attribute.assert_any_call("messaging.destination.name", "test")
+        span.set_attribute.assert_any_call("messaging.consumer.group.name", 1)
+        span.set_attribute.assert_any_call("server.address", "localhost")
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_mixed_topic_batch_has_no_destination_name(
+        self, tracer, batch_consumer, confluent_message
+    ):
+        other = confluent_message()
+        other.topic.return_value = "other"
+        consumer = batch_consumer([confluent_message(), other])
+
+        list(consumer.batches())
+
+        assert tracer.start_span.call_args.kwargs["resource_name"] == "other,test"
+        span = tracer.start_span.return_value.__enter__.return_value
+        assert call("messaging.destination.name", ANY) not in span.set_attribute.call_args_list
+
+    @patch("confluent_kafka_helpers.consumer.set_propagated_headers")
+    def test_does_not_set_propagated_headers(
+        self, set_propagated_headers, batch_consumer, confluent_message
+    ):
+        consumer = batch_consumer(
+            [confluent_message(headers=[("x-request-id", b"abc")])],
+            config_override={"headers.propagate": ["x-request-id"]},
+        )
+
+        list(consumer.batches())
+
+        set_propagated_headers.assert_not_called()
+
+    @patch("confluent_kafka_helpers.consumer.statsd")
+    def test_increments_message_count_by_batch_length(
+        self, statsd, batch_consumer, confluent_message
+    ):
+        consumer = batch_consumer([confluent_message()] * 3)
+
+        list(consumer.batches())
+
+        statsd.increment.assert_called_once_with(
+            "confluent_kafka_helpers.consumer.message.count.total", 3
+        )

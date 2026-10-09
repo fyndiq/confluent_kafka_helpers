@@ -1,3 +1,4 @@
+import contextlib
 import socket
 from functools import partial
 from time import monotonic
@@ -6,6 +7,7 @@ from typing import Callable, Iterator
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
+from opentelemetry.context import Context
 from opentelemetry.trace import SpanKind
 
 from confluent_kafka_helpers import is_shutdown_requested
@@ -226,7 +228,12 @@ class AvroConsumer:
             raw_messages, stop = self._collect_batch()
             if raw_messages or not stop:
                 clear_propagated_headers()
-                yield [Message(m) for m in raw_messages]
+                messages = [Message(m) for m in raw_messages]
+                if not messages:  # non_blocking idle tick: nothing to trace
+                    yield messages
+                else:
+                    with self._batch_span(messages):
+                        yield messages
             if stop:
                 break
         logger.info("Shutdown requested, exiting consumer loop")
@@ -252,6 +259,45 @@ class AvroConsumer:
             if deadline is None:
                 deadline = monotonic() + self.batch_max_wait
         return batch, False
+
+    @contextlib.contextmanager
+    def _batch_span(self, messages: list[Message]):
+        statsd.increment(f"{base_metric}.consumer.message.count.total", len(messages))
+
+        topics = sorted({m._meta.topic for m in messages})
+        links = [
+            link
+            for m in messages
+            for link in tracer.extract_links(
+                context=tracer.extract_headers(headers=m._meta.headers)
+            )
+        ]
+        # no single message's trace is the rightful parent: start a new trace, link them all
+        with tracer.start_span(
+            name="kafka.consume",
+            kind=SpanKind.CONSUMER,
+            resource_name=",".join(topics),
+            context=Context(),
+            links=links,
+        ) as span:
+            span.set_attribute(attrs.MESSAGING_BATCH_MESSAGE_COUNT, len(messages))
+            span.set_attribute(
+                attrs.MESSAGING_OPERATION_NAME, attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME
+            )
+            span.set_attribute(
+                attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE
+            )
+            span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
+            span.set_attribute(attrs.MESSAGING_CONSUMER_GROUP_NAME, self.group_id)
+            if len(topics) == 1:
+                span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, topics[0])
+
+            server_address, *server_port = self.bootstrap_servers.split(":")
+            span.set_attribute(attrs.SERVER_ADDRESS, server_address)
+            if server_port:
+                span.set_attribute(attrs.SERVER_PORT, server_port[0])
+
+            yield span
 
     def _get_topics(self, config):
         topics = config.pop("topics", None)
