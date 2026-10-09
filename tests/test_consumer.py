@@ -127,6 +127,20 @@ class TestAvroConsumer:
             {"x-request-id": "abc-123", "x-correlation-id": "xyz-789"}
         )
 
+    def test_batch_config_defaults(self, avro_consumer):
+        consumer = avro_consumer()
+        assert consumer.batch_max_size == 100
+        assert consumer.batch_max_wait == 1.0
+
+    def test_batch_config_is_popped_from_kafka_config(self, avro_consumer):
+        consumer = avro_consumer(config_override={"batch_max_size": 5, "batch_max_wait": 2.5})
+
+        assert consumer.batch_max_size == 5
+        assert consumer.batch_max_wait == 2.5
+        kafka_config = consumer._mock_consumer.call_args.args[0]
+        assert "batch_max_size" not in kafka_config
+        assert "batch_max_wait" not in kafka_config
+
 
 class TestGetMessage:
     def setup_method(self, *args):

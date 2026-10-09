@@ -80,6 +80,8 @@ class AvroConsumer:
         stop_on_eof = config.pop("stop_on_eof", False)
         poll_timeout = config.pop("poll_timeout", 0.1)
         self.non_blocking = config.pop("non_blocking", False)
+        self.batch_max_size = config.pop("batch_max_size", 100)
+        self.batch_max_wait = config.pop("batch_max_wait", 1.0)
 
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
