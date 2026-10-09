@@ -50,13 +50,33 @@ def default_error_handler(kafka_error):
         raise KafkaException(kafka_error)
 
 
+TRANSIENT_ERROR_CODES = frozenset(
+    {
+        KafkaError.REQUEST_TIMED_OUT,
+        KafkaError.BROKER_NOT_AVAILABLE,
+        # The group coordinator is loading or has moved to another broker, for example while
+        # a broker restarts during managed Kafka maintenance. librdkafka looks the coordinator
+        # up again, so a later commit succeeds. KafkaError.retriable() is False for these
+        # commit errors, so they are listed explicitly.
+        KafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+        KafkaError.COORDINATOR_NOT_AVAILABLE,
+        KafkaError.NOT_COORDINATOR,
+    }
+)
+
+# Total commit attempts, and the first sleep between them (doubling, capped at 10s).
+# 8 attempts wait about 35s in total, well under librdkafka's 300s max.poll.interval.ms.
+COMMIT_RETRIES = 8
+COMMIT_RETRY_BACKOFF = 0.5
+
+
 def is_kafka_transient_error(exc: KafkaException):
     if not exc.args:
         return False
     error = exc.args[0]
     if not isinstance(error, KafkaError):
         return False
-    return error.code() in {KafkaError.REQUEST_TIMED_OUT, KafkaError.BROKER_NOT_AVAILABLE}
+    return error.code() in TRANSIENT_ERROR_CODES
 
 
 class AvroConsumer:
@@ -221,7 +241,12 @@ class AvroConsumer:
     def is_auto_commit(self):
         return self.config.get("enable.auto.commit", True)
 
-    @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error)
+    @retry_exception(
+        exceptions={KafkaException},
+        retries=COMMIT_RETRIES,
+        condition=is_kafka_transient_error,
+        backoff=COMMIT_RETRY_BACKOFF,
+    )
     def commit(self, *args, **kwargs):
         with tracer.start_span(name="kafka.commit", kind=SpanKind.CONSUMER):
             self.consumer.commit(*args, **kwargs)
