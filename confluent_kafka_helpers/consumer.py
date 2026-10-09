@@ -206,17 +206,22 @@ class AvroConsumer:
 
                 yield message
 
-                if action_started_at := propagated_headers.get("action_started_at"):
+                if action_started_at := propagated_headers.get("action_started_at") and (
+                    primary_action_type := propagated_headers.get("primary_action_type")
+                ):
                     try:
                         latency_ms = int(time() * 1000) - int(action_started_at)
                     except (TypeError, ValueError):
                         latency_ms = None
+
                     if latency_ms is not None:
-                        tags = [f"consumer_group:{self.group_id}", f"topic:{topic}"]
+                        tags = [
+                            f"consumer_group:{self.group_id}",
+                            f"topic:{topic}",
+                            f"primary_action_type:{primary_action_type}",
+                        ]
                         if message_class:
                             tags.append(f"message_class:{message_class}")
-                        if primary_action_type := propagated_headers.get("primary_action_type"):
-                            tags.append(f"primary_action_type:{primary_action_type}")
                         statsd.distribution(
                             f"{base_metric}.consumer.action_latency", latency_ms, tags=tags
                         )
