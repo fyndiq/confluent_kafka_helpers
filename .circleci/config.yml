@@ -11,12 +11,12 @@ jobs:
           command: pip install -r requirements.txt
       - run:
           name: Run unit tests
-          command: make unit-test
+          command: ./scripts/unit-test.sh
       - store_test_results:
           path: /tmp/test-results
       - run:
           name: Run lint
-          command: make lint
+          command: ./scripts/lint.sh
 
 workflows:
   version: 2
