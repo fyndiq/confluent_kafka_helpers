@@ -262,7 +262,9 @@ class AvroConsumer:
 
     @contextlib.contextmanager
     def _batch_span(self, messages: list[Message]):
-        statsd.increment(f"{base_metric}.consumer.message.count.total", len(messages))
+        statsd.increment(  # type: ignore[attr-defined]
+            f"{base_metric}.consumer.message.count.total", len(messages)
+        )
 
         topics = sorted({m._meta.topic for m in messages})
         links = [
