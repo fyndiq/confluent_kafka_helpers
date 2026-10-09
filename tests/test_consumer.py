@@ -7,6 +7,7 @@ from opentelemetry.trace import SpanKind
 
 import confluent_kafka_helpers
 from confluent_kafka_helpers.consumer import (
+    COMMIT_RETRIES,
     default_error_handler,
     get_message,
     is_kafka_transient_error,
@@ -177,6 +178,9 @@ class TestIsKafkaTransientError:
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.COORDINATOR_NOT_AVAILABLE,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_returns_true_for_transient_codes(self, code):
@@ -203,19 +207,46 @@ class TestIsKafkaTransientError:
 
 
 class TestAvroConsumerCommit:
-    def test_successful_commit_does_not_retry(self, avro_consumer):
+    @pytest.fixture(autouse=True)
+    def sleep(self):
+        with patch("confluent_kafka_helpers.utils.time.sleep") as sleep:
+            yield sleep
+
+    def test_successful_commit_does_not_retry(self, avro_consumer, sleep):
         consumer = avro_consumer()
         consumer.consumer.commit = Mock()
 
         consumer.commit()
 
         assert consumer.consumer.commit.call_count == 1
+        sleep.assert_not_called()
+
+    def test_coordinator_load_in_progress_is_retried_with_backoff(self, avro_consumer, sleep):
+        # ARTICLE-PROJECTION-BUILDER-18: a broker restart made the group coordinator reload,
+        # the sync commit raised COORDINATOR_LOAD_IN_PROGRESS and the consumer process exited.
+        consumer = avro_consumer()
+        error = KafkaException(
+            ConfluentKafkaError(
+                ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+                "Commit failed: Broker: Coordinator load in progress",
+            )
+        )
+        consumer.consumer.commit = Mock(side_effect=[error, error, error, None])
+
+        consumer.commit(asynchronous=False)
+
+        assert consumer.consumer.commit.call_count == 4
+        consumer.consumer.commit.assert_called_with(asynchronous=False)
+        assert sleep.call_args_list == [call(0.5), call(1.0), call(2.0)]
 
     @pytest.mark.parametrize(
         "code",
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.COORDINATOR_NOT_AVAILABLE,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_retries_on_transient_errors(self, code, avro_consumer):
@@ -232,6 +263,9 @@ class TestAvroConsumerCommit:
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.COORDINATOR_NOT_AVAILABLE,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_reraises_after_max_retries_on_transient_error(self, code, avro_consumer):
@@ -243,7 +277,7 @@ class TestAvroConsumerCommit:
             consumer.commit()
 
         assert exc_info.value.args[0].code() == code
-        assert consumer.consumer.commit.call_count == 3
+        assert consumer.consumer.commit.call_count == COMMIT_RETRIES
 
     @pytest.mark.parametrize(
         "code",

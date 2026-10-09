@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -76,3 +76,35 @@ class TestRetryException:
         with pytest.raises(TypeError):
             foo()
         condition.assert_not_called()
+
+    @patch("confluent_kafka_helpers.utils.time.sleep")
+    def test_no_backoff_by_default(self, sleep):
+        @retry_exception([ValueError])
+        def foo(mock):
+            raise mock()
+
+        with pytest.raises(ValueError):
+            foo(Mock(side_effect=ValueError))
+        sleep.assert_not_called()
+
+    @patch("confluent_kafka_helpers.utils.time.sleep")
+    def test_backoff_doubles_and_is_capped(self, sleep):
+        @retry_exception([ValueError], retries=6, backoff=1, max_backoff=5)
+        def foo(mock):
+            raise mock()
+
+        mock = Mock(side_effect=ValueError)
+        with pytest.raises(ValueError):
+            foo(mock)
+        assert mock.call_count == 6
+        assert sleep.call_args_list == [call(1), call(2), call(4), call(5), call(5)]
+
+    @patch("confluent_kafka_helpers.utils.time.sleep")
+    def test_backoff_not_applied_when_condition_false(self, sleep):
+        @retry_exception([ValueError], condition=lambda exc: False, backoff=1)
+        def foo(mock):
+            raise mock()
+
+        with pytest.raises(ValueError):
+            foo(Mock(side_effect=ValueError))
+        sleep.assert_not_called()
