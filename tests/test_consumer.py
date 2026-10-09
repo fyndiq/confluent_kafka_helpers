@@ -1,8 +1,10 @@
+import inspect
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 
 import pytest
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka import KafkaException
+from opentelemetry.context import Context
 from opentelemetry.trace import SpanKind
 
 import confluent_kafka_helpers
@@ -126,6 +128,20 @@ class TestAvroConsumer:
         set_propagated_headers.assert_called_once_with(
             {"x-request-id": "abc-123", "x-correlation-id": "xyz-789"}
         )
+
+    def test_batch_config_defaults(self, avro_consumer):
+        consumer = avro_consumer()
+        assert consumer.batch_max_size == 100
+        assert consumer.batch_max_wait == 1.0
+
+    def test_batch_config_is_popped_from_kafka_config(self, avro_consumer):
+        consumer = avro_consumer(config_override={"batch_max_size": 5, "batch_max_wait": 2.5})
+
+        assert consumer.batch_max_size == 5
+        assert consumer.batch_max_wait == 2.5
+        kafka_config = consumer._mock_consumer.call_args.args[0]
+        assert "batch_max_size" not in kafka_config
+        assert "batch_max_wait" not in kafka_config
 
 
 class TestGetMessage:
@@ -348,3 +364,194 @@ class TestGracefulShutdown:
 
         with pytest.raises(StopIteration):
             next(iter(consumer))
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+class ScriptedPoll:
+    """poll() side effect: returns `items` in order, advancing `clock` by `tick` per call.
+    When exhausted it requests shutdown and returns None, so iteration always ends."""
+
+    def __init__(self, items, clock=None, tick=0.0):
+        self.items = list(items)
+        self.clock = clock
+        self.tick = tick
+
+    def __call__(self, timeout):
+        if self.clock is not None:
+            self.clock.now += self.tick
+        if not self.items:
+            confluent_kafka_helpers.set_shutdown_requested()
+            return None
+        return self.items.pop(0)
+
+
+@pytest.fixture
+def batch_consumer(avro_consumer):
+    def _create(items, config_override=None, clock=None, tick=0.0):
+        # large default max_wait so non-timing tests never flush on the real clock
+        consumer = avro_consumer(config_override={"batch_max_wait": 60, **(config_override or {})})
+        consumer.consumer.poll = MagicMock(side_effect=ScriptedPoll(items, clock, tick))
+        return consumer
+
+    return _create
+
+
+class TestAvroConsumerBatches:
+    def test_yields_full_batches_then_partial_on_shutdown(self, batch_consumer, confluent_message):
+        message = confluent_message()
+        consumer = batch_consumer([message] * 250, config_override={"batch_max_size": 100})
+
+        batches = list(consumer.batches())
+
+        assert [len(b) for b in batches] == [100, 100, 50]
+        assert all(m.value == b"foobar" for b in batches for m in b)
+
+    def test_blocking_idle_consumer_yields_nothing(self, batch_consumer):
+        consumer = batch_consumer([None, None, None])
+
+        assert list(consumer.batches()) == []
+
+    def test_no_batches_if_shutdown_requested_before_iteration(
+        self, batch_consumer, confluent_message
+    ):
+        consumer = batch_consumer([confluent_message()])
+        confluent_kafka_helpers.set_shutdown_requested()
+
+        assert list(consumer.batches()) == []
+
+    def test_context_manager_closes_batch_generator(self, batch_consumer, confluent_message):
+        consumer = batch_consumer([confluent_message()], config_override={"batch_max_size": 1})
+
+        with consumer:
+            batches = consumer.batches()
+            next(batches)
+
+        assert inspect.getgeneratorstate(batches) == inspect.GEN_CLOSED
+
+    def test_flushes_partial_batch_after_max_wait_since_first_message(
+        self, batch_consumer, confluent_message
+    ):
+        message = confluent_message()
+        clock = FakeClock()
+        # each poll advances the clock 0.5s; first message at t=0.5 -> flush due at t=1.5
+        consumer = batch_consumer(
+            [message, None, None, message],
+            config_override={"batch_max_wait": 1.0},
+            clock=clock,
+            tick=0.5,
+        )
+
+        with patch("confluent_kafka_helpers.consumer.monotonic", clock):
+            batches = list(consumer.batches())
+
+        assert [len(b) for b in batches] == [1, 1]
+
+    def test_non_blocking_yields_empty_batch_after_max_wait(
+        self, batch_consumer, confluent_message
+    ):
+        clock = FakeClock()
+        consumer = batch_consumer(
+            [None, None, None, confluent_message()],
+            config_override={"batch_max_wait": 1.0, "non_blocking": True},
+            clock=clock,
+            tick=0.5,
+        )
+
+        with patch("confluent_kafka_helpers.consumer.monotonic", clock):
+            batches = list(consumer.batches())
+
+        assert [len(b) for b in batches] == [0, 1]
+
+    def test_stop_on_eof_yields_partial_batch_then_stops(self, batch_consumer, confluent_message):
+        eof = confluent_message()
+        eof.error.return_value = KafkaError(_code=ConfluentKafkaError._PARTITION_EOF)
+        message = confluent_message()
+        consumer = batch_consumer([message, message, eof], config_override={"stop_on_eof": True})
+
+        batches = list(consumer.batches())
+
+        assert [len(b) for b in batches] == [2]
+
+    def test_error_propagates_and_buffered_messages_are_not_yielded(
+        self, batch_consumer, confluent_message
+    ):
+        error = confluent_message()
+        error.error.return_value = KafkaError(_code=ConfluentKafkaError._ALL_BROKERS_DOWN)
+        consumer = batch_consumer([confluent_message(), error])
+
+        yielded = []
+        with pytest.raises(KafkaException):
+            for batch in consumer.batches():
+                yielded.append(batch)
+
+        assert yielded == []
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_one_span_per_batch_linked_to_each_message(
+        self, tracer, batch_consumer, confluent_message
+    ):
+        tracer.extract_links.return_value = ["<link>"]
+        message = confluent_message()
+        consumer = batch_consumer([message] * 3)
+
+        list(consumer.batches())
+
+        tracer.start_span.assert_called_once_with(
+            name="kafka.consume",
+            kind=SpanKind.CONSUMER,
+            resource_name="test",
+            context=ANY,
+            links=["<link>", "<link>", "<link>"],
+        )
+        assert tracer.start_span.call_args.kwargs["context"] == Context()  # new root trace
+        span = tracer.start_span.return_value.__enter__.return_value
+        span.set_attribute.assert_any_call("messaging.batch.message_count", 3)
+        span.set_attribute.assert_any_call("messaging.destination.name", "test")
+        span.set_attribute.assert_any_call("messaging.consumer.group.name", 1)
+        span.set_attribute.assert_any_call("server.address", "localhost")
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_mixed_topic_batch_has_no_destination_name(
+        self, tracer, batch_consumer, confluent_message
+    ):
+        other = confluent_message()
+        other.topic.return_value = "other"
+        consumer = batch_consumer([confluent_message(), other])
+
+        list(consumer.batches())
+
+        assert tracer.start_span.call_args.kwargs["resource_name"] == "other,test"
+        span = tracer.start_span.return_value.__enter__.return_value
+        assert call("messaging.destination.name", ANY) not in span.set_attribute.call_args_list
+
+    @patch("confluent_kafka_helpers.consumer.set_propagated_headers")
+    def test_does_not_set_propagated_headers(
+        self, set_propagated_headers, batch_consumer, confluent_message
+    ):
+        consumer = batch_consumer(
+            [confluent_message(headers=[("x-request-id", b"abc")])],
+            config_override={"headers.propagate": ["x-request-id"]},
+        )
+
+        list(consumer.batches())
+
+        set_propagated_headers.assert_not_called()
+
+    @patch("confluent_kafka_helpers.consumer.statsd")
+    def test_increments_message_count_by_batch_length(
+        self, statsd, batch_consumer, confluent_message
+    ):
+        consumer = batch_consumer([confluent_message()] * 3)
+
+        list(consumer.batches())
+
+        statsd.increment.assert_called_once_with(
+            "confluent_kafka_helpers.consumer.message.count.total", 3
+        )

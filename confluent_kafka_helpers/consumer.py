@@ -1,10 +1,13 @@
+import contextlib
 import socket
 from functools import partial
-from typing import Callable
+from time import monotonic
+from typing import Callable, Iterator
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
+from opentelemetry.context import Context
 from opentelemetry.trace import SpanKind
 
 from confluent_kafka_helpers import is_shutdown_requested
@@ -80,6 +83,8 @@ class AvroConsumer:
         stop_on_eof = config.pop("stop_on_eof", False)
         poll_timeout = config.pop("poll_timeout", 0.1)
         self.non_blocking = config.pop("non_blocking", False)
+        self.batch_max_size = config.pop("batch_max_size", 100)
+        self.batch_max_wait = config.pop("batch_max_wait", 1.0)
 
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
@@ -207,6 +212,94 @@ class AvroConsumer:
 
                 clear_propagated_headers()
         logger.info("Shutdown requested, exiting consumer loop")
+
+    def batches(self) -> Iterator[list[Message]]:
+        """
+        Yield lists of up to `batch_max_size` messages. A partial batch is yielded once
+        `batch_max_wait` seconds have passed since its first message, and on shutdown.
+        Commit after each batch. Don't mix with per-message iteration on the same consumer.
+        """
+        # stored as self._generator so __exit__ closes it, like the per-message generator
+        self._generator = self._batch_generator()
+        return self._generator
+
+    def _batch_generator(self):
+        while True:
+            raw_messages, stop = self._collect_batch()
+            if raw_messages or not stop:
+                clear_propagated_headers()
+                messages = [Message(m) for m in raw_messages]
+                if not messages:  # non_blocking idle tick: nothing to trace
+                    yield messages
+                else:
+                    with self._batch_span(messages):
+                        yield messages
+            if stop:
+                break
+        logger.info("Shutdown requested, exiting consumer loop")
+
+    def _collect_batch(self) -> tuple[list, bool]:
+        """Poll until the batch is full or due. Returns (raw messages, stop)."""
+        batch: list = []
+        # non-blocking: hand control back every batch_max_wait, even without messages.
+        # blocking: the timer starts at the first message, so idle consumers never yield.
+        deadline = monotonic() + self.batch_max_wait if self.non_blocking else None
+        while len(batch) < self.batch_max_size:
+            if is_shutdown_requested():
+                return batch, True
+            if deadline is not None and monotonic() >= deadline:
+                break
+            try:
+                message = self._get_message()
+            except EndOfPartition:  # only raised when stop_on_eof is set
+                return batch, True
+            if message is None:
+                continue
+            batch.append(message)
+            if deadline is None:
+                deadline = monotonic() + self.batch_max_wait
+        return batch, False
+
+    @contextlib.contextmanager
+    def _batch_span(self, messages: list[Message]):
+        statsd.increment(  # type: ignore[attr-defined]
+            f"{base_metric}.consumer.message.count.total", len(messages)
+        )
+
+        topics = sorted({m._meta.topic for m in messages})
+        links = [
+            link
+            for m in messages
+            for link in tracer.extract_links(
+                context=tracer.extract_headers(headers=m._meta.headers)
+            )
+        ]
+        # no single message's trace is the rightful parent: start a new trace, link them all
+        with tracer.start_span(
+            name="kafka.consume",
+            kind=SpanKind.CONSUMER,
+            resource_name=",".join(topics),
+            context=Context(),
+            links=links,
+        ) as span:
+            span.set_attribute(attrs.MESSAGING_BATCH_MESSAGE_COUNT, len(messages))
+            span.set_attribute(
+                attrs.MESSAGING_OPERATION_NAME, attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME
+            )
+            span.set_attribute(
+                attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE
+            )
+            span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
+            span.set_attribute(attrs.MESSAGING_CONSUMER_GROUP_NAME, self.group_id)
+            if len(topics) == 1:
+                span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, topics[0])
+
+            server_address, *server_port = self.bootstrap_servers.split(":")
+            span.set_attribute(attrs.SERVER_ADDRESS, server_address)
+            if server_port:
+                span.set_attribute(attrs.SERVER_PORT, server_port[0])
+
+            yield span
 
     def _get_topics(self, config):
         topics = config.pop("topics", None)
