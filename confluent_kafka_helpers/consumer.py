@@ -242,7 +242,10 @@ class AvroConsumer:
                 return batch, True
             if deadline is not None and monotonic() >= deadline:
                 break
-            message = self._get_message()
+            try:
+                message = self._get_message()
+            except EndOfPartition:  # only raised when stop_on_eof is set
+                return batch, True
             if message is None:
                 continue
             batch.append(message)

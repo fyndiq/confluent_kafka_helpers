@@ -467,3 +467,27 @@ class TestAvroConsumerBatches:
             batches = list(consumer.batches())
 
         assert [len(b) for b in batches] == [0, 1]
+
+    def test_stop_on_eof_yields_partial_batch_then_stops(self, batch_consumer, confluent_message):
+        eof = confluent_message()
+        eof.error.return_value = KafkaError(_code=ConfluentKafkaError._PARTITION_EOF)
+        message = confluent_message()
+        consumer = batch_consumer([message, message, eof], config_override={"stop_on_eof": True})
+
+        batches = list(consumer.batches())
+
+        assert [len(b) for b in batches] == [2]
+
+    def test_error_propagates_and_buffered_messages_are_not_yielded(
+        self, batch_consumer, confluent_message
+    ):
+        error = confluent_message()
+        error.error.return_value = KafkaError(_code=ConfluentKafkaError._ALL_BROKERS_DOWN)
+        consumer = batch_consumer([confluent_message(), error])
+
+        yielded = []
+        with pytest.raises(KafkaException):
+            for batch in consumer.batches():
+                yielded.append(batch)
+
+        assert yielded == []
