@@ -1,3 +1,4 @@
+import inspect
 from unittest.mock import ANY, MagicMock, Mock, call, patch
 
 import pytest
@@ -362,3 +363,73 @@ class TestGracefulShutdown:
 
         with pytest.raises(StopIteration):
             next(iter(consumer))
+
+
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+class ScriptedPoll:
+    """poll() side effect: returns `items` in order, advancing `clock` by `tick` per call.
+    When exhausted it requests shutdown and returns None, so iteration always ends."""
+
+    def __init__(self, items, clock=None, tick=0.0):
+        self.items = list(items)
+        self.clock = clock
+        self.tick = tick
+
+    def __call__(self, timeout):
+        if self.clock is not None:
+            self.clock.now += self.tick
+        if not self.items:
+            confluent_kafka_helpers.set_shutdown_requested()
+            return None
+        return self.items.pop(0)
+
+
+@pytest.fixture
+def batch_consumer(avro_consumer):
+    def _create(items, config_override=None, clock=None, tick=0.0):
+        # large default max_wait so non-timing tests never flush on the real clock
+        consumer = avro_consumer(config_override={"batch_max_wait": 60, **(config_override or {})})
+        consumer.consumer.poll = MagicMock(side_effect=ScriptedPoll(items, clock, tick))
+        return consumer
+
+    return _create
+
+
+class TestAvroConsumerBatches:
+    def test_yields_full_batches_then_partial_on_shutdown(self, batch_consumer, confluent_message):
+        message = confluent_message()
+        consumer = batch_consumer([message] * 250, config_override={"batch_max_size": 100})
+
+        batches = list(consumer.batches())
+
+        assert [len(b) for b in batches] == [100, 100, 50]
+        assert all(m.value == b"foobar" for b in batches for m in b)
+
+    def test_blocking_idle_consumer_yields_nothing(self, batch_consumer):
+        consumer = batch_consumer([None, None, None])
+
+        assert list(consumer.batches()) == []
+
+    def test_no_batches_if_shutdown_requested_before_iteration(
+        self, batch_consumer, confluent_message
+    ):
+        consumer = batch_consumer([confluent_message()])
+        confluent_kafka_helpers.set_shutdown_requested()
+
+        assert list(consumer.batches()) == []
+
+    def test_context_manager_closes_batch_generator(self, batch_consumer, confluent_message):
+        consumer = batch_consumer([confluent_message()], config_override={"batch_max_size": 1})
+
+        with consumer:
+            batches = consumer.batches()
+            next(batches)
+
+        assert inspect.getgeneratorstate(batches) == inspect.GEN_CLOSED

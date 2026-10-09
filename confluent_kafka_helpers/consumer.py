@@ -1,6 +1,6 @@
 import socket
 from functools import partial
-from typing import Callable
+from typing import Callable, Iterator
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
@@ -209,6 +209,38 @@ class AvroConsumer:
 
                 clear_propagated_headers()
         logger.info("Shutdown requested, exiting consumer loop")
+
+    def batches(self) -> Iterator[list[Message]]:
+        """
+        Yield lists of up to `batch_max_size` messages. A partial batch is yielded once
+        `batch_max_wait` seconds have passed since its first message, and on shutdown.
+        Commit after each batch. Don't mix with per-message iteration on the same consumer.
+        """
+        # stored as self._generator so __exit__ closes it, like the per-message generator
+        self._generator = self._batch_generator()
+        return self._generator
+
+    def _batch_generator(self):
+        while True:
+            raw_messages, stop = self._collect_batch()
+            if raw_messages or not stop:
+                clear_propagated_headers()
+                yield [Message(m) for m in raw_messages]
+            if stop:
+                break
+        logger.info("Shutdown requested, exiting consumer loop")
+
+    def _collect_batch(self) -> tuple[list, bool]:
+        """Poll until the batch is full. Returns (raw messages, stop)."""
+        batch: list = []
+        while len(batch) < self.batch_max_size:
+            if is_shutdown_requested():
+                return batch, True
+            message = self._get_message()
+            if message is None:
+                continue
+            batch.append(message)
+        return batch, False
 
     def _get_topics(self, config):
         topics = config.pop("topics", None)
