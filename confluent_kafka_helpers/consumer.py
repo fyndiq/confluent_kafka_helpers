@@ -1,6 +1,6 @@
 import socket
 from functools import partial
-from time import time
+from time import time_ns
 from typing import Callable
 
 import structlog
@@ -206,25 +206,7 @@ class AvroConsumer:
 
                 yield message
 
-                if action_started_at := propagated_headers.get("action_started_at") and (
-                    primary_action_type := propagated_headers.get("primary_action_type")
-                ):
-                    try:
-                        latency_ms = int(time() * 1000) - int(action_started_at)
-                    except (TypeError, ValueError):
-                        latency_ms = None
-
-                    if latency_ms is not None:
-                        tags = [
-                            f"consumer_group:{self.group_id}",
-                            f"topic:{topic}",
-                            f"primary_action_type:{primary_action_type}",
-                        ]
-                        if message_class:
-                            tags.append(f"message_class:{message_class}")
-                        statsd.distribution(
-                            f"{base_metric}.consumer.action_latency", latency_ms, tags=tags
-                        )
+                _emit_post_consume_metrics(message=message, propagated_headers=propagated_headers, group_id=self.group_id)
 
                 clear_propagated_headers()
         logger.info("Shutdown requested, exiting consumer loop")
@@ -279,3 +261,28 @@ class AvroLazyConsumer(ConfluentAvroConsumer):
                 decoded_key = self._serializer.decode_message(message.key())
                 message.set_key(decoded_key)
         return message
+
+
+def _emit_post_consume_metrics(group_id: str, message: Message, propagated_headers: dict):
+    if action_started_at := propagated_headers.get("action_started_at") and (
+        primary_action_type := propagated_headers.get("primary_action_type")
+    ):
+        try:
+            latency_ms = int(time_ns() / 1000000) - int(action_started_at)
+        except (TypeError, ValueError):
+            latency_ms = None
+
+        if latency_ms is not None:
+            value, topic = message.value(), message.topic()
+            message_class = value.get("class") if isinstance(value, dict) else None
+
+            tags = [
+                f"consumer_group:{group_id}",
+                f"topic:{topic}",
+                f"primary_action_type:{primary_action_type}",
+            ]
+            if message_class:
+                tags.append(f"message_class:{message_class}")
+            statsd.distribution(
+                f"{base_metric}.consumer.action_latency", latency_ms, tags=tags
+            )
