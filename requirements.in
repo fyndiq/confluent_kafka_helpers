@@ -14,5 +14,6 @@ structlog
 twine
 
 opentelemetry-api==1.27.0
+opentelemetry-sdk==1.27.0
 opentelemetry-semantic-conventions==0.48b0  # 0.48b0 == 1.27.0
 confluent-kafka[avro]==2.*

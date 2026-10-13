@@ -1,5 +1,6 @@
 import socket
 from functools import partial
+from time import monotonic, time_ns
 from typing import Callable
 
 import structlog
@@ -91,6 +92,8 @@ class AvroConsumer:
         self.group_id = self.config["group.id"]
 
         self.propagate_header_keys = self.config.pop("headers.propagate", [])
+        self._custom_on_commit = self.config.get("on_commit")
+        self.config["on_commit"] = self._on_commit
 
         logger.info("Initializing consumer", config=self.config)
         self.consumer = ConfluentAvroConsumer(self.config, logger=logger, **kwargs)
@@ -166,8 +169,7 @@ class AvroConsumer:
                 context=context,
                 links=tracer.extract_links(context=context),
             ) as span:
-                with tracer.start_span(name="kafka.create_message"):
-                    message = Message(message)
+                message = Message(message)
 
                 if message_class:
                     span.set_attribute("message.class", message_class)
@@ -221,10 +223,77 @@ class AvroConsumer:
     def is_auto_commit(self):
         return self.config.get("enable.auto.commit", True)
 
+    def _commit_tags(self, mode, phase, error=None):
+        tags = [
+            f"consumer_group:{self.group_id}",
+            f"mode:{mode}",
+            f"phase:{phase}",
+            f"outcome:{'error' if error is not None else 'success'}",
+        ]
+        kafka_error = error.args[0] if isinstance(error, KafkaException) and error.args else None
+        if isinstance(kafka_error, KafkaError):
+            tags.append(f"error_code:{kafka_error.code()}")
+        return tags
+
+    def _record_commit(self, mode, phase, error=None, duration=None, start_time=None):
+        tags = self._commit_tags(mode, phase, error)
+        statsd.increment(f"{base_metric}.consumer.commit.count.total", tags=tags)
+        if duration is not None:
+            statsd.distribution(f"{base_metric}.consumer.commit.duration", duration, tags=tags)
+        if error is not None:
+            statsd.increment(f"{base_metric}.consumer.commit.count.error", tags=tags)
+            tracer.record_error_span(
+                name="kafka.commit",
+                error=error,
+                kind=SpanKind.CONSUMER,
+                start_time=start_time,
+                attributes={
+                    attrs.MESSAGING_CONSUMER_GROUP_NAME: self.group_id,
+                    "commit.mode": mode,
+                    "commit.phase": phase,
+                },
+            )
+
+    @staticmethod
+    def _partition_commit_error(partitions):
+        for partition in partitions or []:
+            if partition.error:
+                return KafkaException(partition.error)
+        return None
+
+    def _on_commit(self, error, partitions):
+        commit_error = KafkaException(error) if error else self._partition_commit_error(partitions)
+        # Callbacks cannot reliably be matched to submissions or automatic commits.
+        self._record_commit("async_or_auto", "completion", error=commit_error)
+        if self._custom_on_commit:
+            self._custom_on_commit(error, partitions)
+
     @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error)
     def commit(self, *args, **kwargs):
-        with tracer.start_span(name="kafka.commit", kind=SpanKind.CONSUMER):
-            self.consumer.commit(*args, **kwargs)
+        asynchronous = kwargs.get("asynchronous", args[2] if len(args) > 2 else True)
+        mode = "async" if asynchronous else "sync"
+        start_time = time_ns()
+        started = monotonic()
+        try:
+            partitions = self.consumer.commit(*args, **kwargs)
+        except Exception as error:
+            self._record_commit(
+                mode,
+                "attempt",
+                error=error,
+                duration=monotonic() - started,
+                start_time=start_time,
+            )
+            raise
+        else:
+            partition_error = self._partition_commit_error(partitions) if not asynchronous else None
+            self._record_commit(
+                mode,
+                "attempt",
+                error=partition_error,
+                duration=monotonic() - started,
+                start_time=start_time,
+            )
 
 
 class AvroLazyConsumer(ConfluentAvroConsumer):

@@ -76,12 +76,9 @@ def test_avro_producer_produce_specific_topic(confluent_avro_producer, avro_prod
 def test_avro_producer_adds_tracing(tracer, avro_producer):
     avro_producer.produce(key="a", value="1", topic="a")
     expected_calls = [
-        call.start_span(name="kafka.serialize_message"),
-        call.start_span().__enter__(),
-        call.start_span().__enter__().set_attribute("messaging.operation.type", "create"),
-        call.start_span().__exit__(None, None, None),
         call.start_span(name="kafka.produce", kind=SpanKind.PRODUCER, resource_name="a"),
         call.start_span().__enter__(),
+        call.start_span().__enter__().set_attribute("resource.name", "a"),
         call.inject_headers(headers={}),
         call.start_span().__enter__().set_attribute("messaging.operation.name", "produce"),
         call.start_span().__enter__().set_attribute("messaging.operation.type", "publish"),
