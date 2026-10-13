@@ -82,7 +82,7 @@ def test_serialization_failure_marks_produce(recording, avro_producer, has_paren
 
 
 @pytest.mark.parametrize("has_parent", [False, True])
-def test_poll_records_callback_failure_and_preserves_result(recording, avro_producer, has_parent):
+def test_poll_records_callback_failure(recording, avro_producer, has_parent):
     backend, exporter = recording
     with patch.object(producer.ConfluentAvroProducer, "poll", return_value=3) as poll:
         assert avro_producer.poll(0.1) is None
@@ -189,6 +189,97 @@ def test_successful_commit_completion_has_no_span(recording, avro_consumer, mock
     assert exporter.get_finished_spans() == ()
     statsd.distribution.assert_not_called()
     statsd.increment.assert_called_once()
+
+
+@pytest.mark.parametrize("partition_result", [False, True])
+def test_no_offset_completion_is_not_an_error(recording, avro_consumer, mocker, partition_result):
+    _, exporter = recording
+    callback = Mock()
+    client = avro_consumer(config_override={"on_commit": callback})
+    statsd = mocker.patch.object(consumer, "statsd")
+    error = KafkaError(KafkaError._NO_OFFSET)
+    overall = None if partition_result else error
+    partitions = [Mock(spec=TopicPartition, error=error)]
+    client.config["on_commit"](overall, partitions)
+    callback.assert_called_once_with(overall, partitions)
+    statsd.increment.assert_called_once_with(
+        "confluent_kafka_helpers.consumer.commit.count.total",
+        tags=[
+            "consumer_group:1",
+            "mode:async_or_auto",
+            "phase:completion",
+            "outcome:no_offset",
+            f"error_code:{error.code()}",
+        ],
+    )
+    statsd.distribution.assert_not_called()
+    assert exporter.get_finished_spans() == ()
+
+
+def test_sync_no_offset_preserves_exception_without_retry(recording, avro_consumer, mocker):
+    _, exporter = recording
+    client = avro_consumer()
+    statsd = mocker.patch.object(consumer, "statsd")
+    error = KafkaException(KafkaError(KafkaError._NO_OFFSET))
+    client.consumer.commit = Mock(side_effect=error)
+    mocker.patch.object(consumer, "monotonic", side_effect=[0, 0.2])
+    with pytest.raises(KafkaException) as raised:
+        client.commit(asynchronous=False)
+    assert raised.value is error
+    client.consumer.commit.assert_called_once_with(asynchronous=False)
+    statsd.increment.assert_called_once()
+    tags = statsd.increment.call_args.kwargs["tags"]
+    assert "outcome:no_offset" in tags
+    assert f"error_code:{KafkaError._NO_OFFSET}" in tags
+    statsd.distribution.assert_called_once_with(
+        "confluent_kafka_helpers.consumer.commit.duration", 0.2, tags=tags
+    )
+    assert exporter.get_finished_spans() == ()
+
+
+@pytest.mark.parametrize(
+    "mode", ["sync", "completion", "completion_no_offset", "completion_overall_error"]
+)
+def test_no_offset_does_not_hide_other_partition_error(recording, avro_consumer, mocker, mode):
+    _, exporter = recording
+    client = avro_consumer()
+    statsd = mocker.patch.object(consumer, "statsd")
+    no_offset = KafkaError(KafkaError._NO_OFFSET)
+    error = KafkaError(KafkaError._ALL_BROKERS_DOWN)
+    partitions = [Mock(spec=TopicPartition, error=value) for value in (no_offset, error)]
+    if mode == "sync":
+        client.consumer.commit = Mock(return_value=partitions)
+        client.commit(asynchronous=False)
+    else:
+        overall = no_offset if mode == "completion_no_offset" else None
+        if mode == "completion_overall_error":
+            overall = KafkaError(KafkaError.REQUEST_TIMED_OUT)
+            error = overall
+        client.config["on_commit"](overall, partitions)
+    (span,) = exporter.get_finished_spans()
+    assert_error(span, KafkaException(error))
+    assert statsd.increment.call_count == 2
+    assert "outcome:error" in statsd.increment.call_args.kwargs["tags"]
+    assert f"error_code:{error.code()}" in statsd.increment.call_args.kwargs["tags"]
+
+
+@pytest.mark.parametrize("instrumentation", ["metrics", "tracing"])
+def test_on_commit_instrumentation_failure_still_calls_user(
+    recording, avro_consumer, mocker, instrumentation
+):
+    callback = Mock()
+    client = avro_consumer(config_override={"on_commit": callback})
+    failure = RuntimeError("instrumentation failed")
+    statsd = mocker.patch.object(consumer, "statsd")
+    if instrumentation == "metrics":
+        statsd.increment.side_effect = failure
+    else:
+        mocker.patch.object(consumer.tracer, "record_error_span", side_effect=failure)
+    error = KafkaError(KafkaError._ALL_BROKERS_DOWN)
+    with pytest.raises(RuntimeError) as raised:
+        client.config["on_commit"](error, [])
+    assert raised.value is failure
+    callback.assert_called_once_with(error, [])
 
 
 @pytest.mark.parametrize("has_parent", [False, True])

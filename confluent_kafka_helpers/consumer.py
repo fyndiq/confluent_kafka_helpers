@@ -224,13 +224,16 @@ class AvroConsumer:
         return self.config.get("enable.auto.commit", True)
 
     def _commit_tags(self, mode, phase, error=None):
+        kafka_error = error.args[0] if isinstance(error, KafkaException) and error.args else error
+        outcome = "error" if error is not None else "success"
+        if isinstance(kafka_error, KafkaError) and kafka_error.code() == KafkaError._NO_OFFSET:
+            outcome = "no_offset"
         tags = [
             f"consumer_group:{self.group_id}",
             f"mode:{mode}",
             f"phase:{phase}",
-            f"outcome:{'error' if error is not None else 'success'}",
+            f"outcome:{outcome}",
         ]
-        kafka_error = error.args[0] if isinstance(error, KafkaException) and error.args else None
         if isinstance(kafka_error, KafkaError):
             tags.append(f"error_code:{kafka_error.code()}")
         return tags
@@ -240,7 +243,7 @@ class AvroConsumer:
         statsd.increment(f"{base_metric}.consumer.commit.count.total", tags=tags)
         if duration is not None:
             statsd.distribution(f"{base_metric}.consumer.commit.duration", duration, tags=tags)
-        if error is not None:
+        if "outcome:error" in tags:
             statsd.increment(f"{base_metric}.consumer.commit.count.error", tags=tags)
             tracer.record_error_span(
                 name="kafka.commit",
@@ -256,17 +259,25 @@ class AvroConsumer:
 
     @staticmethod
     def _partition_commit_error(partitions):
+        no_offset = None
         for partition in partitions or []:
             if partition.error:
-                return KafkaException(partition.error)
-        return None
+                if partition.error.code() != KafkaError._NO_OFFSET:
+                    return KafkaException(partition.error)
+                if no_offset is None:
+                    no_offset = KafkaException(partition.error)
+        return no_offset
 
     def _on_commit(self, error, partitions):
-        commit_error = KafkaException(error) if error else self._partition_commit_error(partitions)
-        # Callbacks cannot reliably be matched to submissions or automatic commits.
-        self._record_commit("async_or_auto", "completion", error=commit_error)
-        if self._custom_on_commit:
-            self._custom_on_commit(error, partitions)
+        try:
+            commit_error = KafkaException(error) if error else None
+            if error is None or error.code() == KafkaError._NO_OFFSET:
+                commit_error = self._partition_commit_error(partitions) or commit_error
+            # Callbacks cannot reliably be matched to submissions or automatic commits.
+            self._record_commit("async_or_auto", "completion", error=commit_error)
+        finally:
+            if self._custom_on_commit:
+                self._custom_on_commit(error, partitions)
 
     @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error)
     def commit(self, *args, **kwargs):

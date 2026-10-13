@@ -90,11 +90,12 @@ Every explicit commit attempt, including each retry, emits these StatsD metrics:
   measured with a monotonic clock
 
 Tags are `consumer_group`, `mode` (`sync` or `async`), `phase:attempt`,
-`outcome` (`success` or `error`), and `error_code` when a Kafka error is available.
-Synchronous commits include returned partition errors as failed attempts, without
+`outcome` (`success`, `error`, or `no_offset`), and `error_code` when a Kafka error is available.
+`_NO_OFFSET` results are tagged `outcome:no_offset` and are not counted or traced as errors.
+Synchronous commits also inspect returned partition errors without
 changing their return or retry behavior. Each failed attempt or callback emits
 one span using the overall error or the first failed partition as its representative
-exception. Asynchronous attempt duration measures
+exception, prioritizing other errors over `_NO_OFFSET`. Asynchronous attempt duration measures
 submission only, not broker completion latency.
 
 The `on_commit` callback also emits total/error counts with `phase:completion`
