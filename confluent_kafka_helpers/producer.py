@@ -1,6 +1,5 @@
 import atexit
 import socket
-from time import time_ns
 
 import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
@@ -179,11 +178,4 @@ class AvroProducer(ConfluentAvroProducer):
             super().flush(*args, **kwargs)
 
     def poll(self, *args, **kwargs):
-        start_time = time_ns()
-        try:
-            super().poll(*args, **kwargs)
-        except Exception as error:
-            tracer.record_error_span(
-                name="kafka.poll", error=error, kind=SpanKind.PRODUCER, start_time=start_time
-            )
-            raise
+        super().poll(*args, **kwargs)

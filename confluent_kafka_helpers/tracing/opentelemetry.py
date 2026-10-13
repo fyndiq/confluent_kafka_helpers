@@ -4,7 +4,7 @@ from typing import Callable, Iterator
 from opentelemetry import trace
 from opentelemetry.context.context import Context
 from opentelemetry.semconv.schemas import Schemas
-from opentelemetry.trace import Link, Span, SpanKind, Status, StatusCode
+from opentelemetry.trace import Link, Span, SpanKind
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from . import attributes as attrs
@@ -42,11 +42,6 @@ class OpenTelemetryBackend:
             span, end_on_exit=True, record_exception=True, set_status_on_exception=True
         ):
             yield span
-
-    def record_error_span(self, name: str, error: Exception, **kwargs) -> None:
-        with self.start_span(name=name, **kwargs) as span:
-            span.record_exception(error)
-            span.set_status(Status(StatusCode.ERROR, str(error)))
 
     def inject_headers(self, headers: dict) -> None:
         TraceContextTextMapPropagator().inject(headers)
