@@ -7,7 +7,7 @@ class Config:
     KAFKA_CONSUMER_CONFIG = {
         "bootstrap.servers": "localhost:9092",
         "group.id": 1,
-        "schema.registry.url": "1.1.1.1",
+        "schema.registry.url": "http://localhost:8081",
         "topics": "a",
     }
 
@@ -17,13 +17,13 @@ class Config:
         "consumer": {
             "bootstrap.servers": "localhost:9092",
             "group.id": 1,
-            "schema.registry.url": "1.1.1.1",
+            "schema.registry.url": "http://localhost:8081",
         },
     }
 
     KAFKA_PRODUCER_CONFIG = {
         "bootstrap.servers": "localhost:9092",
-        "schema.registry.url": "a",
+        "schema.registry.url": "http://localhost:8081",
         "topics": ["c", "a"],
         "value_serializer": to_message_from_dto,
     }
