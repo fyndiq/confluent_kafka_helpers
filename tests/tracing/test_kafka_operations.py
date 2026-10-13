@@ -133,6 +133,46 @@ def test_commit_metrics_include_all_recovered_attempts(recording, avro_consumer,
     assert durations == pytest.approx([0.1, 0.2, 0.3])
 
 
+@pytest.mark.parametrize("exhausted", [False, True])
+@pytest.mark.parametrize("instrumentation", ["metrics", "tracing"])
+def test_commit_instrumentation_failure_preserves_kafka_retries(
+    recording, avro_consumer, mocker, exhausted, instrumentation
+):
+    _, exporter = recording
+    client = avro_consumer()
+    statsd = mocker.patch.object(consumer, "statsd")
+    failure = RuntimeError("instrumentation failed")
+    span = mocker.spy(consumer.tracer, "record_error_span")
+    if instrumentation == "metrics":
+        statsd.increment.side_effect = [failure, failure, failure if exhausted else None]
+    else:
+        span = mocker.patch.object(consumer.tracer, "record_error_span", side_effect=failure)
+    errors = [KafkaException(KafkaError(KafkaError.REQUEST_TIMED_OUT)) for _ in range(3)]
+    client.consumer.commit = Mock(side_effect=errors if exhausted else [*errors[:2], None])
+    if exhausted:
+        with pytest.raises(KafkaException) as raised:
+            client.commit(asynchronous=False)
+        assert raised.value is errors[-1]
+    else:
+        assert client.commit(asynchronous=False) is None
+    assert client.consumer.commit.call_count == 3
+    expected_errors = errors if exhausted else errors[:2]
+    assert [args.kwargs["error"] for args in span.call_args_list] == expected_errors
+    if instrumentation == "metrics":
+        assert len(exporter.get_finished_spans()) == len(expected_errors)
+
+
+def test_successful_commit_propagates_instrumentation_failure(recording, avro_consumer, mocker):
+    client = avro_consumer()
+    failure = RuntimeError("instrumentation failed")
+    mocker.patch.object(consumer, "statsd").increment.side_effect = failure
+    client.consumer.commit = Mock(return_value=None)
+    with pytest.raises(RuntimeError) as raised:
+        client.commit(asynchronous=False)
+    assert raised.value is failure
+    client.consumer.commit.assert_called_once_with(asynchronous=False)
+
+
 def test_commit_partition_errors_do_not_change_retries_or_return(recording, avro_consumer, mocker):
     _, exporter = recording
     client = avro_consumer()
@@ -246,7 +286,10 @@ def test_no_offset_does_not_hide_other_partition_error(recording, avro_consumer,
     statsd = mocker.patch.object(consumer, "statsd")
     no_offset = KafkaError(KafkaError._NO_OFFSET)
     error = KafkaError(KafkaError._ALL_BROKERS_DOWN)
-    partitions = [Mock(spec=TopicPartition, error=value) for value in (no_offset, error)]
+    partitions = [
+        Mock(spec=TopicPartition, error=value)
+        for value in (no_offset, error, KafkaError(KafkaError.REQUEST_TIMED_OUT))
+    ]
     if mode == "sync":
         client.consumer.commit = Mock(return_value=partitions)
         client.commit(asynchronous=False)
@@ -264,10 +307,13 @@ def test_no_offset_does_not_hide_other_partition_error(recording, avro_consumer,
 
 
 @pytest.mark.parametrize("instrumentation", ["metrics", "tracing"])
+@pytest.mark.parametrize("callback_failure", [False, True])
 def test_on_commit_instrumentation_failure_still_calls_user(
-    recording, avro_consumer, mocker, instrumentation
+    recording, avro_consumer, mocker, instrumentation, callback_failure
 ):
-    callback = Mock()
+    _, exporter = recording
+    user_error = ValueError("user callback failed")
+    callback = Mock(side_effect=user_error if callback_failure else None)
     client = avro_consumer(config_override={"on_commit": callback})
     failure = RuntimeError("instrumentation failed")
     statsd = mocker.patch.object(consumer, "statsd")
@@ -276,10 +322,13 @@ def test_on_commit_instrumentation_failure_still_calls_user(
     else:
         mocker.patch.object(consumer.tracer, "record_error_span", side_effect=failure)
     error = KafkaError(KafkaError._ALL_BROKERS_DOWN)
-    with pytest.raises(RuntimeError) as raised:
+    with pytest.raises(ValueError if callback_failure else RuntimeError) as raised:
         client.config["on_commit"](error, [])
-    assert raised.value is failure
+    assert raised.value is (user_error if callback_failure else failure)
     callback.assert_called_once_with(error, [])
+    if instrumentation == "metrics":
+        (span,) = exporter.get_finished_spans()
+        assert_error(span, KafkaException(error))
 
 
 @pytest.mark.parametrize("has_parent", [False, True])

@@ -223,7 +223,7 @@ class AvroConsumer:
     def is_auto_commit(self):
         return self.config.get("enable.auto.commit", True)
 
-    def _commit_tags(self, mode, phase, error=None):
+    def _record_commit(self, mode, phase, error=None, duration=None, start_time=None):
         kafka_error = error.args[0] if isinstance(error, KafkaException) and error.args else error
         outcome = "error" if error is not None else "success"
         if isinstance(kafka_error, KafkaError) and kafka_error.code() == KafkaError._NO_OFFSET:
@@ -236,43 +236,43 @@ class AvroConsumer:
         ]
         if isinstance(kafka_error, KafkaError):
             tags.append(f"error_code:{kafka_error.code()}")
-        return tags
-
-    def _record_commit(self, mode, phase, error=None, duration=None, start_time=None):
-        tags = self._commit_tags(mode, phase, error)
-        statsd.increment(f"{base_metric}.consumer.commit.count.total", tags=tags)
-        if duration is not None:
-            statsd.distribution(f"{base_metric}.consumer.commit.duration", duration, tags=tags)
-        if "outcome:error" in tags:
-            statsd.increment(f"{base_metric}.consumer.commit.count.error", tags=tags)
-            tracer.record_error_span(
-                name="kafka.commit",
-                error=error,
-                kind=SpanKind.CONSUMER,
-                start_time=start_time,
-                attributes={
-                    attrs.MESSAGING_CONSUMER_GROUP_NAME: self.group_id,
-                    "commit.mode": mode,
-                    "commit.phase": phase,
-                },
-            )
+        try:
+            statsd.increment(f"{base_metric}.consumer.commit.count.total", tags=tags)
+            if duration is not None:
+                statsd.distribution(f"{base_metric}.consumer.commit.duration", duration, tags=tags)
+            if outcome == "error":
+                statsd.increment(f"{base_metric}.consumer.commit.count.error", tags=tags)
+        finally:
+            if outcome == "error":
+                tracer.record_error_span(
+                    name="kafka.commit",
+                    error=error,
+                    kind=SpanKind.CONSUMER,
+                    start_time=start_time,
+                    attributes={
+                        attrs.MESSAGING_CONSUMER_GROUP_NAME: self.group_id,
+                        "commit.mode": mode,
+                        "commit.phase": phase,
+                    },
+                )
 
     @staticmethod
-    def _partition_commit_error(partitions):
-        no_offset = None
+    def _commit_error(partitions, error=None):
+        if error and error.code() != KafkaError._NO_OFFSET:
+            return KafkaException(error)
+        no_offset = KafkaException(error) if error else None
         for partition in partitions or []:
-            if partition.error:
-                if partition.error.code() != KafkaError._NO_OFFSET:
-                    return KafkaException(partition.error)
+            kafka_error = partition.error
+            if kafka_error:
+                if kafka_error.code() != KafkaError._NO_OFFSET:
+                    return KafkaException(kafka_error)
                 if no_offset is None:
-                    no_offset = KafkaException(partition.error)
+                    no_offset = KafkaException(kafka_error)
         return no_offset
 
     def _on_commit(self, error, partitions):
         try:
-            commit_error = KafkaException(error) if error else None
-            if error is None or error.code() == KafkaError._NO_OFFSET:
-                commit_error = self._partition_commit_error(partitions) or commit_error
+            commit_error = self._commit_error(partitions, error)
             # Callbacks cannot reliably be matched to submissions or automatic commits.
             self._record_commit("async_or_auto", "completion", error=commit_error)
         finally:
@@ -288,16 +288,20 @@ class AvroConsumer:
         try:
             partitions = self.consumer.commit(*args, **kwargs)
         except Exception as error:
-            self._record_commit(
-                mode,
-                "attempt",
-                error=error,
-                duration=monotonic() - started,
-                start_time=start_time,
-            )
+            try:
+                self._record_commit(
+                    mode,
+                    "attempt",
+                    error=error,
+                    duration=monotonic() - started,
+                    start_time=start_time,
+                )
+            except Exception:
+                # Instrumentation must not replace the commit failure or prevent retries.
+                pass
             raise
         else:
-            partition_error = self._partition_commit_error(partitions) if not asynchronous else None
+            partition_error = self._commit_error(partitions) if not asynchronous else None
             self._record_commit(
                 mode,
                 "attempt",
