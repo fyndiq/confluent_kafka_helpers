@@ -70,15 +70,3 @@ All spans will now be printed to the std out instead of getting exported.
 **NOTE!** This will most probably conflict if you use another SDK, e.g: `ddtrace` with OTEL enabled
 (`DD_TRACE_OTEL_ENABLED=true`), since it will set up it's own read-only tracer provider. This is mainly for debugging
 the generated spans from an OTEL point of view. Once verified, you should also test with your preferred SDK/exporter.
-
-### Kafka operation spans
-
-Message construction runs inside `kafka.consume`, and value serialization runs
-inside `kafka.produce`. Neither operation emits a separate span. Serialization
-failures mark `kafka.produce` as an error, including without a parent span.
-`kafka.flush` also emits a span.
-
-Polling and commits emit no spans, including on failure. Commit retries and user
-callbacks keep their existing behavior. This library provides no commit metrics
-or dedicated traces for commit failures; applications that need that visibility
-must add their own instrumentation.
