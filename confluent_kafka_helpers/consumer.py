@@ -172,7 +172,7 @@ class AvroConsumer:
                 links=tracer.extract_links(context=context),
             ) as span:
                 with tracer.start_span(name="kafka.create_message"):
-                    message = Message(message)
+                    message = Message(message, self.propagate_header_keys)
 
                 if message_class:
                     span.set_attribute("message.class", message_class)
@@ -228,7 +228,7 @@ class AvroConsumer:
             raw_messages, stop = self._collect_batch()
             if raw_messages or not stop:
                 clear_propagated_headers()
-                messages = [Message(m) for m in raw_messages]
+                messages = [Message(m, self.propagate_header_keys) for m in raw_messages]
                 if not messages:  # non_blocking idle tick: nothing to trace
                     yield messages
                 else:
