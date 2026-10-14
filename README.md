@@ -53,17 +53,23 @@ consumer = AvroConsumer({
     "batch_max_wait": 1.0,  # seconds, default 1.0
 })
 
-for batch in consumer.batches():
+def handle_batch(batch):
     bulk_write([message.value for message in batch])
-    consumer.commit(asynchronous=False)
 ```
+
+Usually you pass the handler to eventsourcing_helpers (`consume_batches(handle_batch)`), which
+iterates `consumer.batches()` and commits the offsets after the handler returns.
 
 - A batch is yielded when it has `batch_max_size` messages, or `batch_max_wait` seconds after
   its first message, whichever comes first. An idle consumer yields nothing
   (with `non_blocking`, it yields `[]` every `batch_max_wait`).
 - On shutdown (or EOF with `stop_on_eof`) the partial batch is yielded, then iteration stops.
-- `commit()` without arguments commits everything polled so far, i.e. the whole batch.
+- If you iterate `batches()` yourself, commit after each batch: `commit()` without arguments
+  commits everything polled so far, i.e. the whole batch.
 - Don't mix `batches()` and per-message iteration on the same consumer.
+- **Handlers must be idempotent.** Delivery is at-least-once per batch: if the process crashes,
+  the handler raises, the commit fails or a rebalance happens before the commit, the whole batch
+  is delivered again, including messages whose db writes were already committed.
 
 ### Propagated headers
 
@@ -76,13 +82,21 @@ message. Each message has `message.propagated_headers` (the configured keys only
 `message.propagate()` around the produce calls that come from that message:
 
 ```python
-for batch in consumer.batches():
+def handle_batch(batch):
     bulk_write([message.value for message in batch])  # persist first, commit the db
     for message in batch:
         with message.propagate():
             producer.produce(build_event(message))
-    consumer.commit(asynchronous=False)
+    producer.flush()  # recommended, see below
 ```
+
+`produce()` only queues the message in the producer's buffer, and the batch's offsets are
+committed right after the handler returns. We recommend flushing the producer before that, e.g.
+`producer.flush()` at the end of the handler. With eventsourcing_helpers you can instead set
+`"flush": True` in the producer config, which flushes after every `produce()`. Without a flush, a
+crash after the commit (e.g. `SIGKILL` or OOM, which skip the flush on exit) loses the queued
+messages, and they are not produced again because the input messages count as consumed. The
+same applies when consuming one message at a time.
 
 Outside a `propagate()` block, nothing is forwarded. If you produce from data that you collected
 during the batch, keep a reference to the source message with that data. Explicit `headers=`
