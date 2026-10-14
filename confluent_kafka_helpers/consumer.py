@@ -171,7 +171,8 @@ class AvroConsumer:
                 context=context,
                 links=tracer.extract_links(context=context),
             ) as span:
-                message = Message(message)
+                with tracer.start_span(name="kafka.create_message"):
+                    message = Message(message, self.propagate_header_keys)
 
                 if message_class:
                     span.set_attribute("message.class", message_class)
@@ -227,7 +228,7 @@ class AvroConsumer:
             raw_messages, stop = self._collect_batch()
             if raw_messages or not stop:
                 clear_propagated_headers()
-                messages = [Message(m) for m in raw_messages]
+                messages = [Message(m, self.propagate_header_keys) for m in raw_messages]
                 if not messages:  # non_blocking idle tick: nothing to trace
                     yield messages
                 else:
@@ -315,7 +316,8 @@ class AvroConsumer:
 
     @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error)
     def commit(self, *args, **kwargs):
-        self.consumer.commit(*args, **kwargs)
+        with tracer.start_span(name="kafka.commit", kind=SpanKind.CONSUMER):
+            self.consumer.commit(*args, **kwargs)
 
 
 class AvroLazyConsumer(ConfluentAvroConsumer):

@@ -567,15 +567,36 @@ class TestPropagatedHeadersWhileHandling:
         ]
 
     def test_single_consume_sets_each_messages_headers(self, batch_consumer, messages):
-        consumer = batch_consumer(messages, config_override={"headers.propagate": ["correlation_id"]})
+        consumer = batch_consumer(
+            messages, config_override={"headers.propagate": ["correlation_id"]}
+        )
 
         seen = [get_propagated_headers() for _ in consumer]
 
         assert seen == [{"correlation_id": "first"}, {"correlation_id": "second"}]
 
-    def test_batch_consume_sets_each_messages_headers(self, batch_consumer, messages):
-        consumer = batch_consumer(messages, config_override={"headers.propagate": ["correlation_id"]})
+    def test_batch_consume_propagates_each_messages_headers(self, batch_consumer, messages):
+        consumer = batch_consumer(
+            messages, config_override={"headers.propagate": ["correlation_id"]}
+        )
+        (batch,) = list(consumer.batches())  # e.g. after the bulk db write is committed
 
-        seen = [get_propagated_headers() for batch in consumer.batches() for _ in batch]
+        seen = []
+        for message in batch:
+            with message.propagate():
+                seen.append(get_propagated_headers())
 
         assert seen == [{"correlation_id": "first"}, {"correlation_id": "second"}]
+        assert [m.propagated_headers for m in batch] == seen
+        assert get_propagated_headers() == {}
+
+    def test_propagate_restores_outer_headers(self, batch_consumer, messages):
+        consumer = batch_consumer(
+            messages, config_override={"headers.propagate": ["correlation_id"]}
+        )
+        (first, second) = next(consumer.batches())
+
+        with first.propagate():
+            with second.propagate():
+                assert get_propagated_headers() == {"correlation_id": "second"}
+            assert get_propagated_headers() == {"correlation_id": "first"}

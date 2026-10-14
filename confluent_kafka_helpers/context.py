@@ -1,3 +1,4 @@
+import contextlib
 import contextvars
 from typing import Any
 
@@ -14,3 +15,13 @@ def get_propagated_headers() -> dict[str, Any]:
 
 def clear_propagated_headers():
     _headers.set({})
+
+
+@contextlib.contextmanager
+def propagated_headers(headers: dict[str, Any]):
+    """Set the propagated headers inside the block, restore the previous ones on exit."""
+    token = _headers.set(headers)
+    try:
+        yield
+    finally:
+        _headers.reset(token)

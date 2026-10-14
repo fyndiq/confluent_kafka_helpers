@@ -65,10 +65,33 @@ for batch in consumer.batches():
 - `commit()` without arguments commits everything polled so far, i.e. the whole batch.
 - Don't mix `batches()` and per-message iteration on the same consumer.
 
+### Propagated headers
+
+The consumer config `headers.propagate` lists header keys (e.g. `correlation_id`) that
+`producer.produce()` forwards on the messages it produces. When consuming one message at a time,
+this is automatic while the message is handled.
+
+When consuming in batches, no headers are set automatically, because there is no single current
+message. Each message has `message.propagated_headers` (the configured keys only). Use
+`message.propagate()` around the produce calls that come from that message:
+
+```python
+for batch in consumer.batches():
+    bulk_write([message.value for message in batch])  # persist first, commit the db
+    for message in batch:
+        with message.propagate():
+            producer.produce(build_event(message))
+    consumer.commit(asynchronous=False)
+```
+
+Outside a `propagate()` block, nothing is forwarded. If you produce from data that you collected
+during the batch, keep a reference to the source message with that data. Explicit `headers=`
+passed to `produce()` override propagated headers with the same key.
+
 ### Tracing
 
 Each batch gets one `kafka.consume` span. It starts a new trace and links to every message's
-trace context. Propagated headers are not set; read them from `message._meta.headers`.
+trace context.
 
 OpenTelemetry keeps at most 128 links per span by default and silently drops the rest. If you raise
 `batch_max_size` above 128, also raise `OTEL_SPAN_LINK_COUNT_LIMIT`.
