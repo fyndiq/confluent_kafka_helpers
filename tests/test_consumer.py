@@ -13,6 +13,7 @@ from confluent_kafka_helpers.consumer import (
     get_message,
     is_kafka_transient_error,
 )
+from confluent_kafka_helpers.context import get_propagated_headers
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 
 from tests.kafka import KafkaError, KafkaMessage
@@ -552,3 +553,29 @@ class TestAvroConsumerBatches:
         statsd.increment.assert_called_once_with(
             "confluent_kafka_helpers.consumer.message.count.total", 3
         )
+
+
+class TestPropagatedHeadersWhileHandling:
+    """`producer.produce()` reads `get_propagated_headers()`, so whatever it returns while a
+    message is handled is what gets forwarded on produced messages."""
+
+    @pytest.fixture
+    def messages(self, confluent_message):
+        return [
+            confluent_message(headers=[("correlation_id", b"first"), ("foo", b"bar")]),
+            confluent_message(headers=[("correlation_id", b"second")]),
+        ]
+
+    def test_single_consume_sets_each_messages_headers(self, batch_consumer, messages):
+        consumer = batch_consumer(messages, config_override={"headers.propagate": ["correlation_id"]})
+
+        seen = [get_propagated_headers() for _ in consumer]
+
+        assert seen == [{"correlation_id": "first"}, {"correlation_id": "second"}]
+
+    def test_batch_consume_sets_each_messages_headers(self, batch_consumer, messages):
+        consumer = batch_consumer(messages, config_override={"headers.propagate": ["correlation_id"]})
+
+        seen = [get_propagated_headers() for batch in consumer.batches() for _ in batch]
+
+        assert seen == [{"correlation_id": "first"}, {"correlation_id": "second"}]
