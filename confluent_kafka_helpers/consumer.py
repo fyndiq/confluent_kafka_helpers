@@ -190,7 +190,8 @@ class AvroConsumer:
                 context=context,
                 links=tracer.extract_links(context=context),
             ) as span:
-                message = Message(message)
+                with tracer.start_span(name="kafka.create_message"):
+                    message = Message(message, self.propagate_header_keys)
 
                 if message_class:
                     span.set_attribute("message.class", message_class)
@@ -246,7 +247,7 @@ class AvroConsumer:
             raw_messages, stop = self._collect_batch()
             if raw_messages or not stop:
                 clear_propagated_headers()
-                messages = [Message(m) for m in raw_messages]
+                messages = [Message(m, self.propagate_header_keys) for m in raw_messages]
                 if not messages:  # non_blocking idle tick: nothing to trace
                     yield messages
                 else:
@@ -334,20 +335,21 @@ class AvroConsumer:
 
     @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error, delay=0.1)
     def commit(self, *args, **kwargs):
-        try:
-            self.consumer.commit(*args, **kwargs)
-        except KafkaException as exc:
-            if not exc.args or not isinstance(exc.args[0], KafkaError):
+        with tracer.start_span(name="kafka.commit", kind=SpanKind.CONSUMER):
+            try:
+                self.consumer.commit(*args, **kwargs)
+            except KafkaException as exc:
+                if not exc.args or not isinstance(exc.args[0], KafkaError):
+                    raise
+                error = exc.args[0]
+                on_commit_cb_metrics(error, None)
+                # Replaying these offsets after ownership changes could commit stale work.
+                if is_lost_assignment(error):
+                    logger.warning(
+                        "Kafka assignment lost; offsets were not committed", error=str(error)
+                    )
+                    return
                 raise
-            error = exc.args[0]
-            on_commit_cb_metrics(error, None)
-            # Replaying these offsets after ownership changes could commit stale work.
-            if is_lost_assignment(error):
-                logger.warning(
-                    "Kafka assignment lost; offsets were not committed", error=str(error)
-                )
-                return
-            raise
 
 
 class AvroLazyConsumer(ConfluentAvroConsumer):
