@@ -241,9 +241,7 @@ class AvroConsumer:
     def _collect_batch(self) -> tuple[list, bool]:
         """Poll until the batch is full or due. Returns (raw messages, stop)."""
         batch: list = []
-        # non-blocking: hand control back every batch_max_wait, even without messages.
-        # blocking: the timer starts at the first message, so idle consumers never yield.
-        deadline = monotonic() + self.batch_max_wait if self.non_blocking else None
+        deadline = None  # starts at the first message
         while len(batch) < self.batch_max_size:
             if is_shutdown_requested():
                 return batch, True
@@ -254,6 +252,8 @@ class AvroConsumer:
             except EndOfPartition:  # only raised when stop_on_eof is set
                 return batch, True
             if message is None:
+                if self.non_blocking and not batch:
+                    return batch, False  # idle tick: hand control back, like per-message mode
                 continue
             batch.append(message)
             if deadline is None:

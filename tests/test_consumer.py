@@ -454,21 +454,22 @@ class TestAvroConsumerBatches:
 
         assert [len(b) for b in batches] == [1, 1]
 
-    def test_non_blocking_yields_empty_batch_after_max_wait(
+    def test_non_blocking_yields_empty_batch_on_each_idle_poll(
         self, batch_consumer, confluent_message
     ):
-        clock = FakeClock()
         consumer = batch_consumer(
-            [None, None, None, confluent_message()],
-            config_override={"batch_max_wait": 1.0, "non_blocking": True},
-            clock=clock,
-            tick=0.5,
+            [None, None, confluent_message()], config_override={"non_blocking": True}
         )
 
-        with patch("confluent_kafka_helpers.consumer.monotonic", clock):
-            batches = list(consumer.batches())
+        assert [len(b) for b in consumer.batches()] == [0, 0, 1]
 
-        assert [len(b) for b in batches] == [0, 1]
+    def test_non_blocking_does_not_flush_started_batch_on_idle_poll(
+        self, batch_consumer, confluent_message
+    ):
+        message = confluent_message()
+        consumer = batch_consumer([message, None, message], config_override={"non_blocking": True})
+
+        assert [len(b) for b in consumer.batches()] == [2]
 
     def test_stop_on_eof_yields_partial_batch_then_stops(self, batch_consumer, confluent_message):
         eof = confluent_message()
