@@ -1,5 +1,7 @@
 import datetime
 
+from confluent_kafka_helpers.context import propagated_headers
+
 
 def kafka_timestamp_to_datetime(timestamp):
     return datetime.datetime.utcfromtimestamp(timestamp / 1000.0) if timestamp is not None else None
@@ -23,12 +25,20 @@ def decode_kafka_headers(headers):
 
 
 class Message:
-    __slots__ = ["value", "_raw", "_meta"]
+    __slots__ = ["value", "_raw", "_meta", "propagated_headers"]
 
-    def __init__(self, kafka_message):
+    def __init__(self, kafka_message, propagate_header_keys=()):
         self.value = kafka_message.value()
         self._raw = kafka_message
         self._meta = MessageMetadata(kafka_message)
+        self.propagated_headers = {
+            k: v for k, v in self._meta.headers.items() if k in propagate_header_keys
+        }
+
+    def propagate(self):
+        """Context manager: `producer.produce()` forwards this message's propagated headers
+        inside the block."""
+        return propagated_headers(self.propagated_headers)
 
     def __repr__(self):
         return f"Message(" f"value={self.value}, " f"_raw={self._raw}, " f"_meta={self._meta}" f")"
