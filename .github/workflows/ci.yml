@@ -1,0 +1,53 @@
+# Lint and tests via the shared workflows in fyndiq/.github
+# (ci-cd/WORKFLOWS.md there is the contract).
+# Branch protection requires the single "CI result" job at the bottom, so
+# the jobs above it can change without touching the ruleset.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# A new push to a PR supersedes the run in flight.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    uses: fyndiq/.github/.github/workflows/service-secret-scan.yml@v1
+    permissions:
+      contents: read
+
+  test:
+    uses: fyndiq/.github/.github/workflows/service-python-checks.yml@v1
+    permissions:
+      contents: read
+    with:
+      python-version: "3.10"
+      package_manager: pip
+      commands: |
+        make unit-test
+        make lint
+
+  # The one required check. A skipped job (docs-only PR) passes; anything
+  # that failed or was cancelled fails it.
+  result:
+    name: CI result
+    if: always()
+    needs: [secret-scan, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if jq -e 'any(.[]; . == "failure" or . == "cancelled")' <<<"$RESULTS" >/dev/null; then
+            echo "::error::a required job failed or was cancelled"; exit 1
+          fi
