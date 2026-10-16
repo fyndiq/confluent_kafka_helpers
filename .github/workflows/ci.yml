@@ -1,0 +1,91 @@
+# Lint and tests, self-contained. This repo is public and the shared
+# workflows in fyndiq/.github are private — GitHub does not let a public
+# repo call them — so the steps of service-secret-scan.yml and
+# service-python-checks.yml are inlined here; keep them in step.
+# Branch protection requires the single "CI result" job at the bottom.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+# A new push to a PR supersedes the run in flight.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  secret-scan:
+    name: secret-scan / gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: "8.30.1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Install gitleaks
+        run: |
+          set -euo pipefail
+          V="$GITLEAKS_VERSION"
+          base="https://github.com/gitleaks/gitleaks/releases/download/v${V}"
+          curl -fsSL --retry 3 "${base}/gitleaks_${V}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          curl -fsSL --retry 3 "${base}/gitleaks_${V}_checksums.txt" -o /tmp/checksums.txt
+          expected="$(grep " gitleaks_${V}_linux_x64.tar.gz$" /tmp/checksums.txt | awk '{print $1}')"
+          echo "${expected}  /tmp/gitleaks.tgz" | sha256sum -c -
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks && sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
+          gitleaks version
+
+      - name: Scan
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          if [ -n "$BASE" ] && [ "$BASE" != "0000000000000000000000000000000000000000" ] && git cat-file -e "$BASE" 2>/dev/null; then
+            echo "scanning ${BASE}..HEAD"
+            gitleaks git --redact --exit-code 1 --log-opts="${BASE}..HEAD" .
+          else
+            echo "no base commit available, scanning full history"
+            gitleaks git --redact --exit-code 1 .
+          fi
+
+  test:
+    name: test / checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.10"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - run: make unit-test
+      - run: make lint
+
+  # The one required check. Anything that failed or was cancelled fails it.
+  result:
+    name: CI result
+    if: always()
+    needs: [secret-scan, test]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          if jq -e 'any(.[]; . == "failure" or . == "cancelled")' <<<"$RESULTS" >/dev/null; then
+            echo "::error::a required job failed or was cancelled"; exit 1
+          fi

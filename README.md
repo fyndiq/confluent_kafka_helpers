@@ -1,6 +1,6 @@
 # Confluent Kafka helpers
 
-[![build](https://circleci.com/gh/fyndiq/confluent_kafka_helpers/tree/master.svg?style=shield)](https://circleci.com/gh/fyndiq/confluent_kafka_helpers/tree/master)
+[![CI](https://github.com/fyndiq/confluent_kafka_helpers/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/fyndiq/confluent_kafka_helpers/actions/workflows/ci.yml)
 [![version](https://img.shields.io/pypi/v/confluent-kafka-helpers.svg)](https://pypi.org/project/confluent-kafka-helpers/)
 [![downloads](https://img.shields.io/pypi/dm/confluent-kafka-helpers.svg)](https://pypi.org/project/confluent-kafka-helpers/)
 [![license](https://img.shields.io/pypi/l/confluent-kafka-helpers.svg)](https://pypi.org/project/confluent-kafka-helpers/)
