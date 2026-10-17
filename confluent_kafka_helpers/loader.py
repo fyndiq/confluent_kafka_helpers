@@ -4,7 +4,7 @@ import uuid
 import zlib
 from collections import defaultdict
 from functools import partial
-from typing import Callable, List
+from typing import Callable
 
 import structlog
 from confluent_kafka import KafkaError, KafkaException, TopicPartition
@@ -71,7 +71,7 @@ class MessageGenerator:
         self.consumer = consumer
         self.key = key
         self.key_filter = key_filter
-        self.messages: List = []
+        self.messages: list = []
         self._generator = self._message_generator()
 
         self._get_message = partial(
