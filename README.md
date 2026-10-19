@@ -42,6 +42,26 @@ for message in consumer:
 - The flag is process-wide. Tests that exercise it must clear it (see
   `tests/test_signals.py` for the autouse reset fixture pattern).
 
+## Header propagation
+
+When a service consumes one Kafka message and produces another, this library can copy selected
+headers from the old message to the new one. These headers are called propagated headers.
+
+The library always tries to copy these headers:
+
+- `origin_action_type`: the action that started the chain of messages.
+- `action_started_at`: when that action started, as epoch milliseconds.
+
+They help downstream services measure how long the whole chain took. Services do not need to list
+these two headers in `headers.propagate`; the library includes them by default. If an incoming
+message does not have one of these headers, the library leaves it out and does not create it.
+
+Services can still add more headers with `headers.propagate`, for example:
+
+```python
+AvroConsumer({**config, "headers.propagate": ["correlation_id"]})
+```
+
 ## OpenTelemetry (OTEL)
 
 ### Test generation of spans

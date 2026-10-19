@@ -19,6 +19,19 @@ from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
 
+DEFAULT_PROPAGATED_HEADERS = ("origin_action_type", "action_started_at")
+
+
+def get_propagate_header_keys(configured_headers):
+    header_keys = []
+    seen = set()
+    for header_key in (*DEFAULT_PROPAGATED_HEADERS, *(configured_headers or [])):
+        if header_key in seen:
+            continue
+        seen.add(header_key)
+        header_keys.append(header_key)
+    return header_keys
+
 
 @retry_exception(exceptions=[KafkaTransportError])
 def get_message(consumer, error_handler, timeout=0.1, stop_on_eof=False):
@@ -90,7 +103,9 @@ class AvroConsumer:
         self.bootstrap_servers = self.config["bootstrap.servers"]
         self.group_id = self.config["group.id"]
 
-        self.propagate_header_keys = self.config.pop("headers.propagate", [])
+        self.propagate_header_keys = get_propagate_header_keys(
+            self.config.pop("headers.propagate", [])
+        )
 
         logger.info("Initializing consumer", config=self.config)
         self.consumer = ConfluentAvroConsumer(self.config, logger=logger, **kwargs)
