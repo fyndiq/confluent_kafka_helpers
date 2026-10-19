@@ -42,6 +42,75 @@ for message in consumer:
 - The flag is process-wide. Tests that exercise it must clear it (see
   `tests/test_signals.py` for the autouse reset fixture pattern).
 
+## Batch consumption
+
+`AvroConsumer.batches()` yields lists of messages, e.g. for bulk writes:
+
+```python
+consumer = AvroConsumer({
+    ...,
+    "batch_max_size": 100,  # default 100
+    "batch_max_wait": 1.0,  # seconds, default 1.0
+})
+
+def handle_batch(batch):
+    bulk_write([message.value for message in batch])
+```
+
+Usually you pass the handler to eventsourcing_helpers (`consume_batches(handle_batch)`), which
+iterates `consumer.batches()` and commits the offsets after the handler returns.
+
+- A batch is yielded when it has `batch_max_size` messages, or `batch_max_wait` seconds after
+  its first message, whichever comes first. An idle consumer yields nothing. With
+  `non_blocking`, it yields `[]` on every empty poll (every `poll_timeout`) while no batch is
+  started, like per-message mode yields `None`.
+- On shutdown (or EOF with `stop_on_eof`) the partial batch is yielded, then iteration stops.
+- If you iterate `batches()` yourself, commit after each batch: `commit()` without arguments
+  commits everything polled so far, i.e. the whole batch.
+- Don't mix `batches()` and per-message iteration on the same consumer.
+- **Handlers must be idempotent.** Delivery is at-least-once per batch: if the process crashes,
+  the handler raises, the commit fails or a rebalance happens before the commit, the whole batch
+  is delivered again, including messages whose db writes were already committed.
+
+### Propagated headers
+
+The consumer config `headers.propagate` lists header keys (e.g. `correlation_id`) that
+`producer.produce()` forwards on the messages it produces. When consuming one message at a time,
+this is automatic while the message is handled.
+
+When consuming in batches, no headers are set automatically, because there is no single current
+message. Each message has `message.propagated_headers` (the configured keys only). Use
+`message.propagate()` around the produce calls that come from that message:
+
+```python
+def handle_batch(batch):
+    bulk_write([message.value for message in batch])  # persist first, commit the db
+    for message in batch:
+        with message.propagate():
+            producer.produce(build_event(message))
+    producer.flush()  # recommended, see below
+```
+
+`produce()` only queues the message in the producer's buffer, and the batch's offsets are
+committed right after the handler returns. We recommend flushing the producer before that, e.g.
+`producer.flush()` at the end of the handler. With eventsourcing_helpers you can instead set
+`"flush": True` in the producer config, which flushes after every `produce()`. Without a flush, a
+crash after the commit (e.g. `SIGKILL` or OOM, which skip the flush on exit) loses the queued
+messages, and they are not produced again because the input messages count as consumed. The
+same applies when consuming one message at a time.
+
+Outside a `propagate()` block, nothing is forwarded. If you produce from data that you collected
+during the batch, keep a reference to the source message with that data. Explicit `headers=`
+passed to `produce()` override propagated headers with the same key.
+
+### Tracing
+
+Each batch gets one `kafka.consume` span. It starts a new trace and links to every message's
+trace context.
+
+OpenTelemetry keeps at most 128 links per span by default and silently drops the rest. If you raise
+`batch_max_size` above 128, also raise `OTEL_SPAN_LINK_COUNT_LIMIT`.
+
 ## OpenTelemetry (OTEL)
 
 ### Test generation of spans
