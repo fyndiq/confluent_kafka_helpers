@@ -23,14 +23,7 @@ DEFAULT_PROPAGATED_HEADERS = ("origin_action_type", "action_started_at")
 
 
 def get_propagate_header_keys(configured_headers):
-    header_keys = []
-    seen = set()
-    for header_key in (*DEFAULT_PROPAGATED_HEADERS, *(configured_headers or [])):
-        if header_key in seen:
-            continue
-        seen.add(header_key)
-        header_keys.append(header_key)
-    return header_keys
+    return list(dict.fromkeys((*DEFAULT_PROPAGATED_HEADERS, *(configured_headers or []))))
 
 
 @retry_exception(exceptions=[KafkaTransportError])
