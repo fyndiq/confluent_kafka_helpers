@@ -1,6 +1,6 @@
 import socket
 from functools import partial
-from typing import Callable
+from typing import Callable, Iterable
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
@@ -18,6 +18,12 @@ from confluent_kafka_helpers.tracing import tracer
 from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
+
+DEFAULT_PROPAGATED_HEADERS: frozenset[str] = frozenset({"origin_action_type", "action_started_at"})
+
+
+def get_propagate_header_keys(configured_headers: Iterable[str] | None) -> set[str]:
+    return set(DEFAULT_PROPAGATED_HEADERS) | set(configured_headers or [])
 
 
 @retry_exception(exceptions=[KafkaTransportError])
@@ -90,7 +96,9 @@ class AvroConsumer:
         self.bootstrap_servers = self.config["bootstrap.servers"]
         self.group_id = self.config["group.id"]
 
-        self.propagate_header_keys = self.config.pop("headers.propagate", [])
+        self.propagate_header_keys = get_propagate_header_keys(
+            self.config.pop("headers.propagate", [])
+        )
 
         logger.info("Initializing consumer", config=self.config)
         self.consumer = ConfluentAvroConsumer(self.config, logger=logger, **kwargs)
