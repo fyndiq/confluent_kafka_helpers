@@ -1,6 +1,6 @@
 import socket
 from functools import partial
-from typing import Callable
+from typing import Callable, Iterable
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
@@ -19,11 +19,11 @@ from confluent_kafka_helpers.utils import retry_exception
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_PROPAGATED_HEADERS = ("origin_action_type", "action_started_at")
+DEFAULT_PROPAGATED_HEADERS: frozenset[str] = frozenset({"origin_action_type", "action_started_at"})
 
 
-def get_propagate_header_keys(configured_headers):
-    return list(dict.fromkeys((*DEFAULT_PROPAGATED_HEADERS, *(configured_headers or []))))
+def get_propagate_header_keys(configured_headers: Iterable[str] | None) -> set[str]:
+    return set(DEFAULT_PROPAGATED_HEADERS) | set(configured_headers or [])
 
 
 @retry_exception(exceptions=[KafkaTransportError])

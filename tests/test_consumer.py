@@ -138,7 +138,7 @@ class TestAvroConsumer:
 
         next(iter(consumer))
 
-        assert consumer.propagate_header_keys == ["origin_action_type", "action_started_at"]
+        assert consumer.propagate_header_keys == {"origin_action_type", "action_started_at"}
         set_propagated_headers.assert_called_once_with(
             {
                 "origin_action_type": "batch_export",
@@ -168,11 +168,11 @@ class TestAvroConsumer:
 
         next(iter(consumer))
 
-        assert consumer.propagate_header_keys == [
+        assert consumer.propagate_header_keys == {
             "origin_action_type",
             "action_started_at",
             "correlation_id",
-        ]
+        }
         set_propagated_headers.assert_called_once_with(
             {
                 "origin_action_type": "batch_export",
