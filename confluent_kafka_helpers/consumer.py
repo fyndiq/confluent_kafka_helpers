@@ -16,7 +16,6 @@ from confluent_kafka_helpers.callbacks import (
 )
 from confluent_kafka_helpers.context import clear_propagated_headers, set_propagated_headers
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
-from confluent_kafka_helpers.logging import KafkaLogger
 from confluent_kafka_helpers.message import Message, decode_kafka_headers
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.metrics.callbacks import on_commit_cb_metrics
@@ -105,7 +104,7 @@ class AvroConsumer:
         self.propagate_header_keys = self.config.pop("headers.propagate", [])
 
         logger.info("Initializing consumer", config=self.config)
-        self.consumer = ConfluentAvroConsumer(self.config, logger=KafkaLogger(logger), **kwargs)
+        self.consumer = ConfluentAvroConsumer(self.config, logger=logger, **kwargs)
         self.consumer.subscribe(self.topics)
 
         self._generator = self._message_generator()

@@ -12,7 +12,6 @@ from confluent_kafka_helpers.callbacks import (
     get_callback,
 )
 from confluent_kafka_helpers.context import get_propagated_headers
-from confluent_kafka_helpers.logging import KafkaLogger
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import datadog, tracer
@@ -70,7 +69,7 @@ class AvroProducer(ConfluentAvroProducer):
         logger.info("Initializing producer", config=config)
         atexit.register(self._close)
 
-        super().__init__(config, logger=KafkaLogger(logger), **kwargs)
+        super().__init__(config, logger=logger, **kwargs)
 
     def _close(self):
         logger.info("Flushing producer")
