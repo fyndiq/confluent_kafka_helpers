@@ -11,22 +11,20 @@ abstractions for consuming and producing messages in a more Pythonic way.
 
 ## Kafka errors and commits
 
-Global connection notifications (`_TRANSPORT`, `_ALL_BROKERS_DOWN`, `_RESOLVE`,
-`_TIMED_OUT`) log warnings while librdkafka reconnects. Metrics and custom error
-callbacks still run. Fatal errors and other global errors still raise the helper's
-`KafkaError`. Known reconnect log messages are forwarded as warnings; other
-librdkafka errors keep their severity. Delivery failures still raise `KafkaDeliveryError`.
-
-Commit calls retry coordinator loading, coordinator changes, request timeouts and
-broker unavailability up to three attempts, with delays of 0.1 and 0.2 seconds.
-Lost membership or assignment logs a warning and emits a commit error metric without
-retrying stale offsets. Those offsets remain uncommitted and messages may be
-redelivered. The existing `commit()` API returns `None`, so its return value does
-not confirm that offsets were committed. Other synchronous failures still raise.
-Asynchronous commit failures are counted. The default callback logs failures;
-custom `on_commit` callbacks receive the original error and partitions and own
-their reporting. Asynchronous failures are not retried because ownership may
-have changed before the callback runs.
+- Nonfatal global `_TRANSPORT`, `_ALL_BROKERS_DOWN`, `_RESOLVE` and `_TIMED_OUT`
+  errors log warnings. Metrics and custom error callbacks still run. Native
+  librdkafka log severity is unchanged.
+- Fatal and other global errors still raise `KafkaError`; delivery failures still
+  raise `KafkaDeliveryError`.
+- Synchronous commits retry transient coordinator errors, request timeouts and
+  broker unavailability up to three attempts, with 0.1 and 0.2 second delays.
+  Other failures raise, except for lost membership or assignment.
+- Lost membership or assignment emits a warning and commit error metric without
+  retrying stale offsets. Handlers must tolerate redelivery. `commit()` returns
+  `None`, which does not confirm success.
+- Asynchronous failures emit metrics and log warnings for transient errors or
+  assignment loss, and errors otherwise. Custom `on_commit` callbacks own
+  reporting. Asynchronous commit failures are not retried.
 
 ## Graceful shutdown
 
