@@ -9,6 +9,25 @@ Library built on top of [Confluent Kafka
 Python](https://github.com/confluentinc/confluent-kafka-python) adding
 abstractions for consuming and producing messages in a more Pythonic way.
 
+## Kafka errors and commits
+
+Global connection notifications (`_TRANSPORT`, `_ALL_BROKERS_DOWN`, `_RESOLVE`,
+`_TIMED_OUT`) log warnings while librdkafka reconnects. Metrics and custom error
+callbacks still run. Fatal errors and other global errors still raise the helper's
+`KafkaError`. Known reconnect log messages are forwarded as warnings; other
+librdkafka errors keep their severity. Delivery failures still raise `KafkaDeliveryError`.
+
+Commit calls retry coordinator loading, coordinator changes, request timeouts and
+broker unavailability up to three attempts, with delays of 0.1 and 0.2 seconds.
+Lost membership or assignment logs a warning and emits a commit error metric without
+retrying stale offsets. Those offsets remain uncommitted and messages may be
+redelivered. The existing `commit()` API returns `None`, so its return value does
+not confirm that offsets were committed. Other synchronous failures still raise.
+Asynchronous commit failures are counted. The default callback logs failures;
+custom `on_commit` callbacks receive the original error and partitions and own
+their reporting. Asynchronous failures are not retried because ownership may
+have changed before the callback runs.
+
 ## Graceful shutdown
 
 Importing `confluent_kafka_helpers` installs handlers for `SIGTERM` and `SIGINT`

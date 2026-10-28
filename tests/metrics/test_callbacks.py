@@ -1,8 +1,11 @@
 import json
 from unittest.mock import MagicMock, patch
 
+from confluent_kafka import KafkaError
+
 from confluent_kafka_helpers.metrics.callbacks import (
     error_cb_metrics,
+    on_commit_cb_metrics,
     on_delivery_cb_metrics,
     stats_cb_metrics,
 )
@@ -28,6 +31,21 @@ class OnDeliveryCallbackMetricsTests:
         on_delivery_cb_metrics("error", MagicMock(), statsd)
 
         assert statsd.increment.call_count == 2
+
+
+class OnCommitCallbackMetricsTests:
+    def test_failed_commit_is_counted_once(self):
+        statsd = MagicMock()
+        error = KafkaError(KafkaError.UNKNOWN_MEMBER_ID)
+        on_commit_cb_metrics(error, [], statsd)
+        statsd.increment.assert_called_once_with(
+            "confluent_kafka_helpers.consumer.commit.count.error", tags=["code:25"]
+        )
+
+    def test_success_does_not_count_error(self):
+        statsd = MagicMock()
+        on_commit_cb_metrics(None, [], statsd)
+        statsd.increment.assert_not_called()
 
 
 class StatsCallbackMetricsTests:

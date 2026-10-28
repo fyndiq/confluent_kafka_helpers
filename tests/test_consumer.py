@@ -174,6 +174,8 @@ class TestIsKafkaTransientError:
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_returns_true_for_transient_codes(self, code):
@@ -213,6 +215,8 @@ class TestAvroConsumerCommit:
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_retries_on_transient_errors(self, code, avro_consumer):
@@ -229,6 +233,8 @@ class TestAvroConsumerCommit:
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_reraises_after_max_retries_on_transient_error(self, code, avro_consumer):
