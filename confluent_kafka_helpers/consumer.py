@@ -8,14 +8,24 @@ from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from opentelemetry.trace import SpanKind
 
 from confluent_kafka_helpers import is_shutdown_requested
-from confluent_kafka_helpers.callbacks import default_error_cb, default_stats_cb, get_callback
+from confluent_kafka_helpers.callbacks import (
+    default_error_cb,
+    default_on_commit_cb,
+    default_stats_cb,
+    get_callback,
+)
 from confluent_kafka_helpers.context import clear_propagated_headers, set_propagated_headers
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.message import Message, decode_kafka_headers
 from confluent_kafka_helpers.metrics import base_metric, statsd
+from confluent_kafka_helpers.metrics.callbacks import on_commit_cb_metrics
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import tracer
-from confluent_kafka_helpers.utils import retry_exception
+from confluent_kafka_helpers.utils import (
+    is_lost_assignment,
+    is_retryable_commit_error,
+    retry_exception,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -56,7 +66,7 @@ def is_kafka_transient_error(exc: KafkaException):
     error = exc.args[0]
     if not isinstance(error, KafkaError):
         return False
-    return error.code() in {KafkaError.REQUEST_TIMED_OUT, KafkaError.BROKER_NOT_AVAILABLE}
+    return is_retryable_commit_error(error)
 
 
 class AvroConsumer:
@@ -84,6 +94,7 @@ class AvroConsumer:
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
         self.config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
+        self.config["on_commit"] = get_callback(config.pop("on_commit", None), default_on_commit_cb)
         self.topics = self._get_topics(self.config)
 
         self.client_id = self.config["client.id"]
@@ -220,9 +231,22 @@ class AvroConsumer:
     def is_auto_commit(self):
         return self.config.get("enable.auto.commit", True)
 
-    @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error)
+    @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error, delay=0.1)
     def commit(self, *args, **kwargs):
-        self.consumer.commit(*args, **kwargs)
+        try:
+            self.consumer.commit(*args, **kwargs)
+        except KafkaException as exc:
+            if not exc.args or not isinstance(exc.args[0], KafkaError):
+                raise
+            error = exc.args[0]
+            on_commit_cb_metrics(error, None)
+            # Replaying these offsets after ownership changes could commit stale work.
+            if is_lost_assignment(error):
+                logger.warning(
+                    "Kafka assignment lost; offsets were not committed", error=str(error)
+                )
+                return
+            raise
 
 
 class AvroLazyConsumer(ConfluentAvroConsumer):
