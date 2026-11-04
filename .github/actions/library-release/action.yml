@@ -1,0 +1,156 @@
+name: Library release lifecycle
+description: Prepare or publish retained library distributions with pinned tooling.
+inputs:
+  command:
+    required: true
+    description: inspect, prepare, publish, receipt, or announce.
+  announce_tag:
+    default: ""
+    description: Completed stable tag for announcement only.
+  slack_channel:
+    default: C0CE6LY0T0C
+    description: Release announcement channel ID.
+  working-directory:
+    default: .
+    description: Library project directory.
+  directory:
+    default: ""
+    description: Candidate directory outside the checkout.
+  release_paths:
+    default: ""
+    description: Newline-separated packaged-content globs.
+  source_ref:
+    default: ""
+    description: Source ref for a manually dispatched prerelease.
+  target_version:
+    default: ""
+    description: Stable target major.minor.patch version.
+  phase:
+    default: ""
+    description: alpha, beta, or rc.
+  source_sha:
+    default: ""
+    description: Immutable inspected source SHA.
+  version:
+    default: ""
+    description: Allocated prerelease version or original retry version.
+  resume_tag:
+    default: ""
+    description: Existing release tag to resume.
+  branch:
+    default: master
+    description: Protected default branch.
+  release_retry:
+    default: "0"
+    description: Internal bounded stale-source retry counter.
+  inspected_attempt:
+    default: ""
+    description: Attempt that authorized preparation.
+  followup_stable:
+    default: "false"
+    description: Continue stable intent after automatic pending recovery.
+  preparation_result:
+    default: ""
+    description: Durable preparation job result for retry safety.
+  inspection_result:
+    default: ""
+    description: Durable inspection job result for retry safety.
+  mode:
+    default: ""
+    description: Explicit stable or prerelease mode.
+outputs:
+  inspected-attempt:
+    value: ${{ steps.release.outputs.inspected-attempt }}
+    description: Attempt that authorized preparation.
+  outcome:
+    value: ${{ steps.release.outputs.outcome }}
+    description: prepare, reuse, or resume.
+  mode:
+    value: ${{ steps.release.outputs.mode }}
+    description: Inspected release mode.
+  followup-stable:
+    value: ${{ steps.release.outputs.followup-stable }}
+    description: Continue stable intent after recovery.
+  allocation-retained:
+    value: ${{ steps.release.outputs.allocation-retained }}
+    description: True when reusing the original run allocation.
+  prerelease:
+    value: ${{ steps.release.outputs.prerelease }}
+    description: True for completed prereleases.
+  source-sha:
+    value: ${{ steps.release.outputs.source-sha }}
+    description: Immutable selected source commit.
+  resume-tag:
+    value: ${{ steps.release.outputs.resume-tag }}
+    description: Pending release to resume before any new bump.
+  next-version:
+    value: ${{ steps.release.outputs.next-version }}
+    description: Prepared version, empty for no increment.
+  candidate-attempt:
+    value: ${{ steps.release.outputs.candidate-attempt }}
+    description: Run attempt that produced the retained candidate.
+  completed:
+    value: ${{ steps.release.outputs.completed }}
+    description: True only after registry and GitHub publication.
+  tag:
+    value: ${{ steps.release.outputs.tag }}
+    description: Completed tag.
+  version:
+    value: ${{ steps.release.outputs.version }}
+    description: Completed version.
+  package:
+    value: ${{ steps.release.outputs.package }}
+    description: Completed package.
+  release-url:
+    value: ${{ steps.release.outputs.release-url }}
+    description: Completed GitHub Release URL.
+  release-id:
+    value: ${{ steps.release.outputs.release-id }}
+    description: Completed GitHub Release ID.
+runs:
+  using: composite
+  steps:
+    - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      with:
+        version: "0.13.1"
+        enable-cache: false
+    - id: release
+      shell: bash
+      env:
+        SCRIPTS: ${{ github.action_path }}/../../../scripts/library-ci
+        COMMAND: ${{ inputs.command }}
+        ANNOUNCE_TAG: ${{ inputs.announce_tag }}
+        SLACK_CHANNEL: ${{ inputs.slack_channel }}
+        DIRECTORY: ${{ inputs.directory }}
+        PROJECT: ${{ inputs.working-directory }}
+        RELEASE_PATHS: ${{ inputs.release_paths }}
+        RESUME_TAG: ${{ inputs.resume_tag }}
+        BRANCH: ${{ inputs.branch }}
+        RETRY: ${{ inputs.release_retry }}
+        SOURCE_REF: ${{ inputs.source_ref }}
+        TARGET_VERSION: ${{ inputs.target_version }}
+        PHASE: ${{ inputs.phase }}
+        SOURCE_SHA: ${{ inputs.source_sha }}
+        VERSION: ${{ inputs.version }}
+        INSPECTED_ATTEMPT: ${{ inputs.inspected_attempt }}
+        FOLLOWUP_STABLE: ${{ inputs.followup_stable }}
+        PREPARATION_RESULT: ${{ inputs.preparation_result }}
+        INSPECTION_RESULT: ${{ inputs.inspection_result }}
+        MODE: ${{ inputs.mode }}
+      run: |
+        if [ "$COMMAND" = announce ]; then
+          uv run --no-project --no-config --python 3.12 \
+            --with commitizen==4.13.9 --with google-auth==2.40.3 --with requests==2.32.5 \
+            python "$SCRIPTS/release_notifications.py" --working-directory "$PROJECT" \
+            --tag "$ANNOUNCE_TAG" --channel "$SLACK_CHANNEL"
+          exit
+        fi
+        uv run --no-project --no-config --python 3.12 \
+        --with commitizen==4.13.9 --with google-auth==2.40.3 --with requests==2.32.5 \
+        python "$SCRIPTS/library_release.py" "$COMMAND" --working-directory "$PROJECT" \
+        --directory "$DIRECTORY" --release-paths "$RELEASE_PATHS" \
+        --resume-tag "$RESUME_TAG" --branch "$BRANCH" --retry "$RETRY" \
+        --source-ref "$SOURCE_REF" --target-version "$TARGET_VERSION" --phase "$PHASE" \
+        --source-sha "$SOURCE_SHA" --version "$VERSION" \
+        --followup-stable "$FOLLOWUP_STABLE" --preparation-result "$PREPARATION_RESULT" \
+        --inspection-result "$INSPECTION_RESULT" --mode "$MODE" --inspected-attempt "$INSPECTED_ATTEMPT"
