@@ -1,3 +1,62 @@
+[build-system]
+requires = ["setuptools==75.8.0", "wheel==0.45.1"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "confluent-kafka-helpers"
+version = "1.6.0"
+description = "Helpers for Confluent's Kafka Python client"
+requires-python = ">=3.10"
+authors = [{name = "Fyndiq AB", email = "support@fyndiq.com"}]
+license = {text = "MIT"}
+dependencies = [
+    "structlog>=17.2.0",
+    "confluent-kafka[avro]==2.*",
+    "opentelemetry-api==1.27.0",
+    "opentelemetry-semantic-conventions==0.48b0",
+]
+
+[project.urls]
+Homepage = "https://github.com/fyndiq/confluent_kafka_helpers"
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.packages.find]
+include = ["confluent_kafka_helpers*", "tests*"]
+namespaces = false
+
+[dependency-groups]
+dev = [
+    "commitizen==4.13.9",
+    "flake8==7.1.1",
+    "flake8-black==0.3.6",
+    "flake8-eradicate==1.5.0",
+    "flake8-isort==6.1.2",
+    "mypy==1.15.0",
+    "pdbpp==0.10.3",
+    "pytest==8.3.4",
+    "pytest-coverage==0.0",
+    "pytest-icdiff==0.9",
+    "pytest-mock==3.14.0",
+]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "pep440"
+version_provider = "uv"
+update_changelog_on_bump = false
+changelog_merge_prerelease = true
+annotated_tag = true
+
+[[tool.uv.index]]
+name = "qlty"
+url = "https://oauth2accesstoken@europe-north1-python.pkg.dev/fyndiq/qlty/simple/"
+publish-url = "https://europe-north1-python.pkg.dev/fyndiq/qlty/"
+explicit = true
+exclude-newer = false
+
 [tool.black]
 line-length = 100
 exclude = '''

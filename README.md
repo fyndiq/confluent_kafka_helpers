@@ -9,6 +9,18 @@ Library built on top of [Confluent Kafka
 Python](https://github.com/confluentinc/confluent-kafka-python) adding
 abstractions for consuming and producing messages in a more Pythonic way.
 
+## Development
+
+Install [uv](https://docs.astral.sh/uv/) 0.13.1 and run `make setup` to install
+the locked development dependencies with Python 3.10. Run `make test` for unit
+tests and lint checks, and `make build` to build a wheel and source distribution
+in `dist/`. `make lock` updates the lockfile after dependency changes.
+
+Runtime requirements and package metadata are defined in `pyproject.toml`.
+`uv.lock` fixes development versions. Commitizen 4.13.9 uses the uv version
+provider and annotated `v<version>` tags. Publishing runs through the release
+workflow. See [Releases](docs/releases.md) for setup, prereleases, and recovery.
+
 ## Kafka errors and commits
 
 - Nonfatal global `_TRANSPORT`, `_ALL_BROKERS_DOWN`, `_RESOLVE` and `_TIMED_OUT`
