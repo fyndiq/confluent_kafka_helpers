@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "confluent-kafka-helpers"
-version = "1.6.0"
+version = "1.6.1"
 description = "Helpers for Confluent's Kafka Python client"
 requires-python = ">=3.10"
 authors = [{name = "Fyndiq AB", email = "support@fyndiq.com"}]
