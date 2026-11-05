@@ -88,17 +88,34 @@ def registries():
     return destinations
 
 
+def fixture_environment(root):
+    return patch.dict(
+        os.environ,
+        {
+            "GIT_CONFIG_GLOBAL": "/dev/null",
+            "GIT_CONFIG_SYSTEM": "/dev/null",
+            "GITHUB_RUN_ID": "42",
+            "GITHUB_RUN_ATTEMPT": "1",
+            "GITHUB_REPOSITORY": "fyndiq/example",
+            "GITHUB_WORKFLOW_REF": "fyndiq/example/.github/workflows/release.yml@refs/heads/master",
+            "GITHUB_OUTPUT": "",
+            "GITHUB_STEP_SUMMARY": "",
+            "RUNNER_TEMP": str(root),
+            "FOLLOWUP_STABLE": "false",
+            "GH_TOKEN": "test-only",
+            "DISPATCH_TOKEN": "test-only",
+        },
+    )
+
+
 class LifecycleFixture:
     def setUp(self):
-        environment = patch.dict(
-            os.environ,
-            {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"},
-        )
-        environment.start()
-        self.addCleanup(environment.stop)
         self.temporary = tempfile.TemporaryDirectory()
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
+        environment = fixture_environment(self.root)
+        environment.start()
+        self.addCleanup(environment.stop)
         self.old_directory = Path.cwd()
         self.addCleanup(os.chdir, self.old_directory)
         self.repo = self.root / "repo"
@@ -297,10 +314,7 @@ class PreparationFixture:
         self.repo = self.root / "repo"
         self.repo.mkdir()
         os.chdir(self.repo)
-        self.environment = patch.dict(
-            os.environ,
-            {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_SYSTEM": "/dev/null"},
-        )
+        self.environment = fixture_environment(self.root)
         self.environment.start()
         self.addCleanup(self.environment.stop)
         self.git("init", "-b", "master")
