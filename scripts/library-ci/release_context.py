@@ -439,7 +439,7 @@ def reconcile_registry(registry, candidate, complete=False, *, label="Registry")
 
 
 def wait_for_registry(registry, candidate, label):
-    """Wait for missing originals after a successful upload, without retrying writes."""
+    """Wait for published originals to become visible, without retrying writes."""
     started = monotonic()
     deadline = started + 120
     delay = 2

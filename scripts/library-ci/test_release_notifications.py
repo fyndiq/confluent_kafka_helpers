@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import requests
+import release_context as context
 from library_ci import CheckError
 from release_notifications import (
     LIMIT,
@@ -21,6 +22,7 @@ from release_notifications import (
     markdown,
 )
 from release_test_support import LifecycleFixture
+from test_registry_visibility import Clock
 
 
 class Messages(Slack):
@@ -61,6 +63,11 @@ class Delivery(LifecycleFixture, unittest.TestCase):
         self.write_manifest()
         self.publish()
         self.slack = Messages()
+        self.clock = Clock()
+        for name in ("monotonic", "sleep"):
+            replacement = patch.object(context, name, getattr(self.clock, name))
+            replacement.start()
+            self.addCleanup(replacement.stop)
 
     def announce(self):
         announce(self.github, "v1.0.1", "C123", self.slack, lambda _: self.registries)
@@ -83,6 +90,78 @@ class Delivery(LifecycleFixture, unittest.TestCase):
             if name.startswith("notification-state-")
         ]
         self.assertEqual(states[-1]["messages"], [message["ts"]])
+
+    def delayed_visibility(self, destination):
+        expected = self.manifest["artifacts"]
+
+        def files(*args):
+            self.assertEqual(self.slack.calls, [])
+            self.assertNotIn((1, PLAN), self.github.data)
+            return next(visible)
+
+        visible = iter([{}, dict(list(expected.items())[:1]), expected])
+        with patch.object(destination, "files", side_effect=files) as reads:
+            self.announce()
+        self.assertEqual(reads.call_count, 3)
+        self.assertEqual(self.clock.sleeps, [2, 4])
+        self.announce()
+        self.assertEqual(len(self.slack.messages), 1)
+        self.assertEqual(self.publish_calls, 1)
+
+    def test_announcement_waits_for_qlty_visibility(self):
+        self.delayed_visibility(self.registry)
+
+    def test_announcement_waits_for_pypi_visibility(self):
+        self.delayed_visibility(self.pypi)
+
+    def test_registry_timeout_never_sends_and_same_tag_retry_sends_once(self):
+        for label, destination in (("qlty", self.registry), ("PyPI", self.pypi)):
+            with self.subTest(registry=label):
+                self.clock.now = 0
+                self.clock.sleeps.clear()
+                expected = self.manifest["artifacts"]
+                visible = dict(list(expected.items())[:1])
+                missing = next(iter(expected.keys() - visible.keys()))
+                with (
+                    patch.object(destination, "files", return_value=visible),
+                    self.assertRaises(CheckError) as raised,
+                ):
+                    self.announce()
+                self.assertIn(label, str(raised.exception))
+                self.assertIn(missing, str(raised.exception))
+                self.assertIn("120.0s", str(raised.exception))
+                self.assertEqual(self.clock.now, 120)
+                self.assertEqual(self.slack.calls, [])
+                self.assertNotIn((1, PLAN), self.github.data)
+        self.announce()
+        self.announce()
+        self.assertEqual(len(self.slack.messages), 1)
+        self.assertEqual(self.publish_calls, 1)
+
+    def test_registry_integrity_and_read_failures_never_wait_or_send(self):
+        name = next(iter(self.manifest["artifacts"]))
+        for destination in (self.registry, self.pypi):
+            for result in (
+                {name: "changed"},
+                {"unexpected.whl": "other"},
+                CheckError("Registry read failed"),
+                ValueError("invalid metadata"),
+            ):
+                with self.subTest(registry=destination, result=result):
+                    options = (
+                        {"side_effect": result}
+                        if isinstance(result, Exception)
+                        else {"return_value": result}
+                    )
+                    with patch.object(destination, "files", **options) as reads:
+                        with self.assertRaises(
+                            type(result) if isinstance(result, Exception) else CheckError
+                        ):
+                            self.announce()
+                    self.assertEqual(reads.call_count, 1)
+                    self.assertEqual(self.clock.sleeps, [])
+                    self.assertEqual(self.slack.calls, [])
+                    self.assertNotIn((1, PLAN), self.github.data)
 
     def test_rejected_before_send_retries(self):
         self.slack.fail = "before"
