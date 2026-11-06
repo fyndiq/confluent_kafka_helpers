@@ -179,3 +179,72 @@ class PreparationTests(PreparationFixture, unittest.TestCase):
             release.prepare(["package.py"], self.candidate, self.github)
         checked.assert_not_called()
         self.assertFalse(self.candidate.exists())
+
+    def test_historical_merge_preserves_branch_increment_and_breaking_body(self):
+        for message, version in (
+            ("fix: repair package", "1.0.1"),
+            ("fix: replace API\n\nBREAKING CHANGE: callers must adapt", "2.0.0"),
+        ):
+            with self.subTest(message=message):
+                self.git("checkout", "master")
+                self.git("reset", "--hard", self.baseline)
+                self.git("checkout", "-B", "historical-branch")
+                Path("package.py").write_text("value = 2\n")
+                self.commit(message)
+                self.git("checkout", "master")
+                self.git(
+                    "merge", "--no-ff", "historical-branch", "-m", "Integrated branch"
+                )
+                # Stop before committing the prepared version or building artifacts.
+                with (
+                    patch.object(
+                        release,
+                        "checked",
+                        side_effect=RuntimeError("preparation reached"),
+                    ),
+                    patch.object(release.PullRequests, "link", return_value="branch"),
+                    patch.object(release, "outputs") as outputs,
+                    self.assertRaisesRegex(RuntimeError, "preparation reached"),
+                ):
+                    release.prepare(["package.py"], self.root / version, self.github)
+                self.assertEqual(
+                    outputs.call_args_list[0].kwargs["next_version"], version
+                )
+
+    def test_invalid_ordinary_commits_are_rejected_in_merged_history(self):
+        for message in ("invalid branch commit", "Merge misleading ordinary commit"):
+            with self.subTest(message=message):
+                self.git("reset", "--hard", self.baseline)
+                self.git("checkout", "-B", "historical-branch")
+                Path("package.py").write_text("value = 2\n")
+                self.commit(message)
+                invalid = self.git("rev-parse", "HEAD")
+                self.git("checkout", "master")
+                self.git(
+                    "merge", "--no-ff", "historical-branch", "-m", "Integrated branch"
+                )
+                Path("package.py").write_text("value = 3\n")
+                self.commit("fix: valid final commit")
+                with (
+                    patch.object(release, "checked") as checked,
+                    self.assertRaisesRegex(release.CheckError, invalid[:12]),
+                ):
+                    release.prepare(["package.py"], self.candidate, self.github)
+                checked.assert_not_called()
+                self.assertFalse(self.candidate.exists())
+
+    def test_historical_merge_cannot_replace_a_release_eligible_commit(self):
+        self.git("checkout", "-b", "historical-branch")
+        Path("package.py").write_text("value = 2\n")
+        self.commit("chore: alter package")
+        self.git("checkout", "master")
+        self.git("merge", "--no-ff", "historical-branch", "-m", "Integrated branch")
+        with (
+            patch.object(release, "checked") as checked,
+            self.assertRaisesRegex(
+                release.CheckError, "without a release-eligible commit"
+            ),
+        ):
+            release.prepare(["package.py"], self.candidate, self.github)
+        checked.assert_not_called()
+        self.assertFalse(self.candidate.exists())

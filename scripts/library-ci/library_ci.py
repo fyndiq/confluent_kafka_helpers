@@ -53,15 +53,18 @@ def resolve(ref: str) -> str:
 class RawCommit:
     rev: str
     message: str
+    parents: tuple[str, ...]
 
 
 def commits(base: str, head: str) -> list[RawCommit]:
     fields = git_output(
-        "log", "--reverse", "-z", "--format=%H%x00%B", f"{base}..{head}"
+        "log", "--reverse", "-z", "--format=%H%x00%P%x00%B", f"{base}..{head}"
     ).split("\0")[:-1]
     return [
-        RawCommit(rev, message)
-        for rev, message in zip(fields[::2], fields[1::2], strict=True)
+        RawCommit(rev, message, tuple(parents.split()))
+        for rev, parents, message in zip(
+            fields[::3], fields[1::3], fields[2::3], strict=True
+        )
     ]
 
 
@@ -90,7 +93,11 @@ def packaged_changes(base: str, head: str, patterns: list[str]) -> bool:
 
 
 def preview(
-    release_paths: list[str], base: str | None = None, head: str = "HEAD"
+    release_paths: list[str],
+    base: str | None = None,
+    head: str = "HEAD",
+    *,
+    allow_historical_merges: bool = False,
 ) -> dict[str, str]:
     if git_output("rev-parse", "--is-shallow-repository") != "false":
         raise CheckError(
@@ -133,7 +140,14 @@ def preview(
         introduced = commits(base, head)
         if not introduced:
             raise CheckError("The PR range is empty. Check the supplied base and head.")
-        validate_commits(introduced, cz)
+        validate_commits(
+            [
+                commit
+                for commit in introduced
+                if not allow_historical_merges or len(commit.parents) < 2
+            ],
+            cz,
+        )
         comparison = git_output("merge-base", base, head)
         increment_map = (
             cz.bump_map_major_version_zero

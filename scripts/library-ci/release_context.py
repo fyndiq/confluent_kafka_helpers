@@ -346,12 +346,7 @@ def verify_legacy_bootstrap(github, registries, package, version, tag, releases)
 def verify_baseline(github, registries, package, version, tag, releases):
     if verify_legacy_bootstrap(github, registries, package, version, tag, releases):
         return
-    for destination in (registries.qlty, registries.pypi):
-        verify_registry_baseline(github, destination, package, version, tag, releases)
-
-
-def verify_registry_baseline(github, registry, package, version, tag, releases):
-    found = registry.files(package, version)
+    original = None
     matches = [r for r in releases if r["tag_name"] == tag]
     if any(r["draft"] for r in matches):
         raise CheckError("Stable baseline still has a pending GitHub Release.")
@@ -361,37 +356,36 @@ def verify_registry_baseline(github, registry, package, version, tag, releases):
         ]
         if originals:
             try:
-                original = Candidate.parse(
-                    github.download(originals[0]), github.repository
-                )
+                original = retained_candidate(github, matches[0])
             except CheckError:
                 raise CheckError(
                     "Completed stable baseline differs from its published originals."
                 ) from None
-            annotation = git_output(
-                "for-each-ref", "--format=%(contents)", f"refs/tags/{tag}"
-            )
             if (
                 original.version != version
                 or original.package != package
-                or original.tag != tag
-                or original.artifacts != found
-                or annotation != original.tag_message
+                or not verify_existing_tag(original)
             ):
                 raise CheckError(
                     "Completed stable baseline differs from its published originals."
                 )
-            return
-    if git_output(
+    if original is None and git_output(
         "for-each-ref", "--format=%(contents)", f"refs/tags/{tag}"
     ).startswith(MARKER + "\n"):
         raise CheckError(
             "Automation baseline is missing its original publication manifest."
         )
-    if not any(name.endswith(".whl") for name in found) or not any(
-        name.endswith(".tar.gz") for name in found
-    ):
-        raise CheckError("Stable baseline publication is incomplete or unverified.")
+    for registry in (registries.qlty, registries.pypi):
+        found = registry.files(package, version)
+        if original is not None:
+            if original.artifacts != found:
+                raise CheckError(
+                    "Completed stable baseline differs from its published originals."
+                )
+        elif not any(name.endswith(".whl") for name in found) or not any(
+            name.endswith(".tar.gz") for name in found
+        ):
+            raise CheckError("Stable baseline publication is incomplete or unverified.")
 
 
 def metadata_tag_rules(metadata):

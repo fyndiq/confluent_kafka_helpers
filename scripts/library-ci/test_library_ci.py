@@ -1,10 +1,11 @@
 """Exercise the shared contract against real temporary Git histories."""
 
+import io
 import os
 import subprocess
 import tempfile
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -291,6 +292,17 @@ class LibraryCI(unittest.TestCase):
             self.assertRaisesRegex(ci.CheckError, "exit 3"),
         ):
             self.preview()
+
+    def test_tool_launch_failure_is_sanitized(self):
+        stderr = io.StringIO()
+        with (
+            patch("sys.argv", ["library_ci.py", "--release-paths", "package.py"]),
+            patch.object(ci, "run", side_effect=OSError("private diagnostics")),
+            redirect_stderr(stderr),
+        ):
+            self.assertEqual(ci.main(), 1)
+        self.assertIn("unavailable project metadata/tooling", stderr.getvalue())
+        self.assertNotIn("private diagnostics", stderr.getvalue())
 
     def test_build_failure_does_not_expose_diagnostics(self):
         with (

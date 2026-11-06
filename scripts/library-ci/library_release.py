@@ -148,9 +148,9 @@ def prepare(
             "Release preparation requires Commitizen's uv version provider."
         )
     release = preview(paths)
-    # Revalidate the full source range, including full breaking-change bodies.
+    # Historical merge envelopes may be nonconventional; validate all ordinary commits.
     if resolve(release["baseline"]) != resolve("HEAD"):
-        preview(paths, release["baseline"])
+        preview(paths, release["baseline"], allow_historical_merges=True)
     if mode == "prerelease":
         parsed = Version(version)
         if (
