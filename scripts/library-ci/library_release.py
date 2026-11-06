@@ -42,6 +42,7 @@ from release_context import (
     retained_candidate,
     verify_baseline,
     verify_existing_tag,
+    wait_for_registry,
 )
 from release_notes import PullRequests, release_section, updated_changelog
 from release_plan import ReleaseRequest, pending_releases, plan
@@ -548,7 +549,7 @@ def publish(
         stale_restart(github, release, candidate, registry, branch, retry)
         return
     qlty = registry.qlty
-    qlty_found = reconcile_registry(qlty, candidate)
+    qlty_found = reconcile_registry(qlty, candidate, label="qlty")
     if qlty_found != candidate.artifacts:
         # The trusted publisher never executes source code or its build backend.
         config = directory / "uv-publish.toml"
@@ -568,7 +569,7 @@ def publish(
             "oauth2accesstoken",
             *(str(directory / name) for name in candidate.artifacts),
         )
-    reconcile_registry(qlty, candidate, complete=True)
+        wait_for_registry(qlty, candidate, "qlty")
     publish_pypi(registry.pypi, candidate, directory)
     reconcile_registries(registry, candidate, complete=True)
     if release["draft"]:
@@ -598,7 +599,7 @@ def publish(
 
 
 def publish_pypi(registry, candidate, directory):
-    found = reconcile_registry(registry, candidate)
+    found = reconcile_registry(registry, candidate, label="PyPI")
     if found == candidate.artifacts:
         return
     token = os.environ.get("PYPI_API_TOKEN")
@@ -626,7 +627,7 @@ def publish_pypi(registry, candidate, directory):
     )
     if result.returncode:
         raise CheckError("PyPI publication failed; resume the same retained tag.")
-    reconcile_registry(registry, candidate, complete=True)
+    wait_for_registry(registry, candidate, "PyPI")
 
 
 def main():

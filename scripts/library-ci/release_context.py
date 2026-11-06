@@ -10,6 +10,7 @@ import re
 import tomllib
 from html.parser import HTMLParser
 from pathlib import Path
+from time import monotonic, sleep
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -416,21 +417,48 @@ def retained_candidate(github, release):
 
 
 def reconcile_registries(registries, candidate, complete=False):
-    qlty = reconcile_registry(registries.qlty, candidate, complete)
-    pypi = reconcile_registry(registries.pypi, candidate, complete)
+    qlty = reconcile_registry(registries.qlty, candidate, complete, label="qlty")
+    pypi = reconcile_registry(registries.pypi, candidate, complete, label="PyPI")
     return qlty | pypi
 
 
-def reconcile_registry(registry, candidate, complete=False):
+def reconcile_registry(registry, candidate, complete=False, *, label="Registry"):
     found = registry.files(candidate.package, candidate.version)
     if any(
         name not in candidate.artifacts or candidate.artifacts[name] != checksum
         for name, checksum in found.items()
     ):
-        raise CheckError("Registry content differs from the retained originals.")
+        raise CheckError(f"{label} content differs from the retained originals.")
     if complete and found != candidate.artifacts:
-        raise CheckError("Registry publication is incomplete; resume the same tag.")
+        missing = ", ".join(sorted(candidate.artifacts.keys() - found.keys()))
+        raise CheckError(
+            f"{label} publication is incomplete; missing expected files: {missing}; "
+            "resume the same tag."
+        )
     return found
+
+
+def wait_for_registry(registry, candidate, label):
+    """Wait for missing originals after a successful upload, without retrying writes."""
+    started = monotonic()
+    deadline = started + 120
+    delay = 2
+    while True:
+        found = reconcile_registry(registry, candidate, label=label)
+        if found == candidate.artifacts:
+            return
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        sleep(min(delay, remaining))
+        delay = min(delay * 2, 30)
+        if monotonic() >= deadline:
+            break
+    missing = ", ".join(sorted(candidate.artifacts.keys() - found.keys()))
+    raise CheckError(
+        f"{label} publication is incomplete after {monotonic() - started:.1f}s; "
+        f"missing expected files: {missing}; resume the same tag."
+    )
 
 
 def verify_existing_tag(candidate):
