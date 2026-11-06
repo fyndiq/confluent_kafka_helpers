@@ -1,3 +1,9 @@
+## v1.6.2 (2026-11-06)
+
+### Fix
+
+- **ci**: align release validation with eventsourcing helpers ([#119](https://github.com/fyndiq/confluent_kafka_helpers/pull/119))
+
 ## v1.6.1 (2026-11-05)
 
 ### Fix
