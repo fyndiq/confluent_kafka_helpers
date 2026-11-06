@@ -423,37 +423,75 @@ class LifecycleTests(LifecycleFixture, unittest.TestCase):
         self.assertEqual(release.remote("refs/tags/v1.0.1"), "")
 
     def test_baseline_manifest_cannot_redefine_original_tagged_hashes(self):
-        import hashlib
-
+        self.publish()
+        baseline = self.github.releases()
+        with patch.object(
+            self.github, "download", wraps=self.github.download
+        ) as download:
+            release.verify_baseline(
+                self.github, self.registries, "example", "1.0.1", "v1.0.1", baseline
+            )
+        download.assert_called_once()
         original = {
             **self.manifest,
-            "version": "1.0.0",
-            "tag": "v1.0.0",
-            "artifacts": dict.fromkeys(self.registry.baseline, "a" * 64),
+            "artifacts": dict.fromkeys(self.registry.current, "a" * 64),
         }
-        self.registry.baseline = original["artifacts"].copy()
-        self.pypi.baseline = original["artifacts"].copy()
-        contents = json.dumps(original).encode()
-        sha = self.git("rev-parse", "v1.0.0")
-        self.git("tag", "-d", "v1.0.0")
-        self.git(
-            "tag",
-            "-a",
-            "v1.0.0",
-            sha,
-            "-m",
-            release.MARKER + "\n" + hashlib.sha256(contents).hexdigest(),
-        )
-        baseline = {"id": 99, "tag_name": "v1.0.0", "draft": False, "name": "1.0.0"}
-        self.github.data[99, "manifest.json"] = contents
-        release.verify_baseline(
-            self.github, self.registries, "example", "1.0.0", "v1.0.0", [baseline]
-        )
-        self.registry.baseline["example-1.0.0.tar.gz"] = "changed"
-        self.github.data[99, "manifest.json"] = json.dumps(original).encode()
+        self.registry.current = original["artifacts"].copy()
+        self.pypi.current = original["artifacts"].copy()
+        self.github.data[baseline[0]["id"], "manifest.json"] = json.dumps(
+            original
+        ).encode()
+        with self.assertRaisesRegex(release.CheckError, "metadata differs"):
+            release.verify_baseline(
+                self.github, self.registries, "example", "1.0.1", "v1.0.1", baseline
+            )
+
+    def test_completed_baseline_checks_each_registry_independently(self):
+        self.publish()
+        expected = self.manifest["artifacts"]
+        for destination in (self.registry, self.pypi):
+            with self.subTest(registry=destination):
+                destination.current.pop(next(iter(expected)))
+                with self.assertRaisesRegex(release.CheckError, "baseline differs"):
+                    release.verify_baseline(
+                        self.github,
+                        self.registries,
+                        "example",
+                        "1.0.1",
+                        "v1.0.1",
+                        self.github.releases(),
+                    )
+                destination.current = expected.copy()
+
+    def test_completed_baseline_rejects_changed_release_notes(self):
+        self.publish()
+        self.github.records[0]["body"] = "changed release notes"
         with self.assertRaisesRegex(release.CheckError, "baseline differs"):
             release.verify_baseline(
-                self.github, self.registries, "example", "1.0.0", "v1.0.0", [baseline]
+                self.github,
+                self.registries,
+                "example",
+                "1.0.1",
+                "v1.0.1",
+                self.github.releases(),
+            )
+
+    def test_completed_baseline_rejects_wrong_tag_target_with_original_annotation(self):
+        self.publish()
+        candidate = release.load(self.directory, self.github.repository)
+        self.git("tag", "-d", candidate.tag)
+        self.git("tag", "-a", candidate.tag, self.source, "-m", candidate.tag_message)
+        self.git("push", "--force", "origin", f"refs/tags/{candidate.tag}")
+        with self.assertRaisesRegex(
+            release.CheckError, "original annotated release tag"
+        ):
+            release.verify_baseline(
+                self.github,
+                self.registries,
+                candidate.package,
+                candidate.version,
+                candidate.tag,
+                self.github.releases(),
             )
 
     def test_automatic_pending_resume_checks_newer_source_after_completion(self):
