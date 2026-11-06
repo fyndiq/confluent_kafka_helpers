@@ -18,9 +18,9 @@ from library_ci import CheckError
 from release_context import (
     GitHub,
     Registries,
-    reconcile_registries,
     retained_candidate,
     verify_existing_tag,
+    wait_for_registry,
 )
 
 SCHEMA = "library-slack-v1"
@@ -321,9 +321,9 @@ def announce(github, tag, channel, slack, registry_factory=None):
         ) from None
     if not verify_existing_tag(candidate):
         raise CheckError("Announcement requires the original annotated release tag.")
-    reconcile_registries(
-        (registry_factory or Registries)(candidate.index), candidate, complete=True
-    )
+    registries = (registry_factory or Registries)(candidate.index)
+    wait_for_registry(registries.qlty, candidate, "qlty")
+    wait_for_registry(registries.pypi, candidate, "PyPI")
     assets = [a for a in github.assets(release) if a["name"] == "notes.md"]
     if len(assets) != 1:
         raise CheckError("Restore canonical notes.md before announcing.")

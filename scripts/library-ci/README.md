@@ -116,10 +116,13 @@ recovery, and announcements. Both registries are checked independently; merging
 partial file sets never establishes completion.
 
 After each successful upload, the publisher retries verification of missing files
-with backoff for up to 120 seconds. Registry reads already in progress can extend
-the elapsed time beyond that window. A timeout identifies the registry, missing
-expected filenames, and elapsed wait. Hash conflicts, unexpected files, and read
-errors fail immediately. Resume the same tag after correcting the cause.
+with backoff for up to 120 seconds. Announcements independently allow the same
+visibility window for each registry before contacting Slack. Registry reads
+already in progress can extend the elapsed time beyond that window. A timeout
+identifies the registry, missing expected filenames, and elapsed wait. Hash
+conflicts, unexpected files, and read errors fail immediately. After correcting
+the cause, retry publication with `resume_tag` or announcement with `announce_tag`
+for the same tag.
 
 Source-race cleanup requires an absent remote tag and no publication files in
 either registry. Stable Git publication uses an atomic commit/tag push with an

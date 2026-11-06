@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import library_ci
 import library_release as release
+import release_context as context
 from release_context import (
     PublicPyPI,
     PublicRedirects,
@@ -19,6 +20,7 @@ from release_context import (
 from release_notifications import SCHEMA, announce
 from release_plan import allocate_prerelease
 from release_test_support import LifecycleFixture, registries
+from test_registry_visibility import Clock
 from test_release_notifications import Messages
 
 
@@ -147,7 +149,12 @@ class DualLifecycleTests(LifecycleFixture, unittest.TestCase):
         self.publish()
         self.public.current.clear()
         slack = Messages()
-        with self.assertRaisesRegex(release.CheckError, "incomplete"):
+        clock = Clock()
+        with (
+            patch.object(context, "monotonic", clock.monotonic),
+            patch.object(context, "sleep", clock.sleep),
+            self.assertRaisesRegex(release.CheckError, "incomplete"),
+        ):
             announce(
                 self.github,
                 "v1.0.1",
@@ -156,6 +163,7 @@ class DualLifecycleTests(LifecycleFixture, unittest.TestCase):
                 registry_factory=lambda _: self.destinations,
             )
         self.assertFalse(slack.calls)
+        self.assertEqual(clock.now, 120)
 
     def test_newer_release_is_blocked_after_public_failure(self):
         self.fail_public = True
