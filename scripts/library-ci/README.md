@@ -115,6 +115,12 @@ registry reconciliation, and tag verification are shared by staging, publication
 recovery, and announcements. Both registries are checked independently; merging
 partial file sets never establishes completion.
 
+After each successful upload, the publisher retries verification of missing files
+with backoff for up to 120 seconds. Registry reads already in progress can extend
+the elapsed time beyond that window. A timeout identifies the registry, missing
+expected filenames, and elapsed wait. Hash conflicts, unexpected files, and read
+errors fail immediately. Resume the same tag after correcting the cause.
+
 Source-race cleanup requires an absent remote tag and no publication files in
 either registry. Stable Git publication uses an atomic commit/tag push with an
 expected-head lease. Prereleases preserve `master` and validate that only the
