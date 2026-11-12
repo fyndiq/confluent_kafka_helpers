@@ -166,9 +166,10 @@ class AvroConsumer:
 
             statsd.increment(f"{base_metric}.consumer.message.count.total")
 
-            value, resource_name = message.value(), message.topic()
+            value = message.value()
+            topic = message.topic()
             message_class = value.get("class") if isinstance(value, dict) else None
-            resource_name = f"{message.topic()}:{message_class}" if message_class else resource_name
+            resource_name = f"{topic}:{message_class}" if message_class else topic
 
             headers = decode_kafka_headers(message.headers())
             propagated_headers = {
