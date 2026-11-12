@@ -1,3 +1,9 @@
+## v1.7.0 (2026-11-12)
+
+### Feat
+
+- Add default propagated Kafka headers ([#114](https://github.com/fyndiq/confluent_kafka_helpers/pull/114))
+
 ## v1.6.2 (2026-11-06)
 
 ### Fix
