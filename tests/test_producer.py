@@ -1,5 +1,5 @@
 from contextlib import ExitStack
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
 from opentelemetry.trace import SpanKind
@@ -76,12 +76,9 @@ def test_avro_producer_produce_specific_topic(confluent_avro_producer, avro_prod
 def test_avro_producer_adds_tracing(tracer, avro_producer):
     avro_producer.produce(key="a", value="1", topic="a")
     expected_calls = [
-        call.start_span(name="kafka.serialize_message"),
-        call.start_span().__enter__(),
-        call.start_span().__enter__().set_attribute("messaging.operation.type", "create"),
-        call.start_span().__exit__(None, None, None),
         call.start_span(name="kafka.produce", kind=SpanKind.PRODUCER, resource_name="a"),
         call.start_span().__enter__(),
+        call.start_span().__enter__().set_attribute("resource.name", "a"),
         call.inject_headers(headers={}),
         call.start_span().__enter__().set_attribute("messaging.operation.name", "produce"),
         call.start_span().__enter__().set_attribute("messaging.operation.type", "publish"),
@@ -97,6 +94,22 @@ def test_avro_producer_adds_tracing(tracer, avro_producer):
         call.start_span().__exit__(None, None, None),
     ]
     tracer.assert_has_calls(expected_calls)
+
+
+@patch("confluent_kafka_helpers.producer.tracer")
+def test_serializer_failure_exits_produce_span(tracer, avro_producer, confluent_avro_producer):
+    error = ValueError("serialization failed")
+    avro_producer.value_serializer = MagicMock(side_effect=error)
+
+    with pytest.raises(ValueError) as raised:
+        avro_producer.produce("input", topic="a")
+
+    assert raised.value is error
+    tracer.start_span.assert_called_once_with(
+        name="kafka.produce", kind=SpanKind.PRODUCER, resource_name="a"
+    )
+    tracer.start_span.return_value.__exit__.assert_called_once_with(ValueError, error, ANY)
+    confluent_avro_producer.assert_not_called()
 
 
 def test_get_subject_names(avro_producer):
