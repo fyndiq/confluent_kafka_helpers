@@ -47,9 +47,6 @@ class TestAvroConsumer:
                 links=ANY,
             ),
             call.start_span().__enter__(),
-            call.start_span(name="kafka.create_message"),
-            call.start_span().__enter__(),
-            call.start_span().__exit__(None, None, None),
             call.start_span().__enter__().set_attribute("messaging.operation.name", "consume"),
             call.start_span().__enter__().set_attribute("messaging.operation.type", "receive"),
             call.start_span().__enter__().set_attribute("messaging.client.id", "<client-id>"),
@@ -127,6 +124,75 @@ class TestAvroConsumer:
             {"x-request-id": "abc-123", "x-correlation-id": "xyz-789"}
         )
 
+    @patch("confluent_kafka_helpers.consumer.set_propagated_headers")
+    def test_sets_default_propagated_headers_without_config(
+        self, set_propagated_headers, avro_consumer
+    ):
+        headers = [
+            ("origin_action_type", b"batch_export"),
+            ("action_started_at", b"1729170000000"),
+            ("foo", b"bar"),
+        ]
+
+        consumer = avro_consumer(headers=headers)
+
+        next(iter(consumer))
+
+        assert consumer.propagate_header_keys == {"origin_action_type", "action_started_at"}
+        set_propagated_headers.assert_called_once_with(
+            {
+                "origin_action_type": "batch_export",
+                "action_started_at": "1729170000000",
+            }
+        )
+
+    @patch("confluent_kafka_helpers.consumer.set_propagated_headers")
+    def test_configured_propagated_headers_are_appended_to_defaults_and_deduped(
+        self, set_propagated_headers, avro_consumer
+    ):
+        headers = [
+            ("origin_action_type", b"batch_export"),
+            ("action_started_at", b"1729170000000"),
+            ("correlation_id", b"abc-123"),
+        ]
+        config_override = {
+            "headers.propagate": [
+                "origin_action_type",
+                "correlation_id",
+                "action_started_at",
+                "correlation_id",
+            ]
+        }
+
+        consumer = avro_consumer(config_override=config_override, headers=headers)
+
+        next(iter(consumer))
+
+        assert consumer.propagate_header_keys == {
+            "origin_action_type",
+            "action_started_at",
+            "correlation_id",
+        }
+        set_propagated_headers.assert_called_once_with(
+            {
+                "origin_action_type": "batch_export",
+                "action_started_at": "1729170000000",
+                "correlation_id": "abc-123",
+            }
+        )
+
+    @patch("confluent_kafka_helpers.consumer.set_propagated_headers")
+    def test_default_propagated_headers_are_not_invented_when_absent(
+        self, set_propagated_headers, avro_consumer
+    ):
+        headers = [("foo", b"bar")]
+
+        consumer = avro_consumer(headers=headers)
+
+        next(iter(consumer))
+
+        set_propagated_headers.assert_called_once_with({})
+
 
 class TestGetMessage:
     def setup_method(self, *args):
@@ -177,6 +243,8 @@ class TestIsKafkaTransientError:
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_returns_true_for_transient_codes(self, code):
@@ -216,6 +284,8 @@ class TestAvroConsumerCommit:
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_retries_on_transient_errors(self, code, avro_consumer):
@@ -232,6 +302,8 @@ class TestAvroConsumerCommit:
         [
             ConfluentKafkaError.REQUEST_TIMED_OUT,
             ConfluentKafkaError.BROKER_NOT_AVAILABLE,
+            ConfluentKafkaError.COORDINATOR_LOAD_IN_PROGRESS,
+            ConfluentKafkaError.NOT_COORDINATOR,
         ],
     )
     def test_reraises_after_max_retries_on_transient_error(self, code, avro_consumer):

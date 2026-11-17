@@ -1,6 +1,7 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
+from confluent_kafka import KafkaError as ConfluentKafkaError
 
 from confluent_kafka_helpers.callbacks import (
     default_error_cb,
@@ -21,6 +22,46 @@ class GetCallBackTests:
 
 
 class DefaultErrorCallbackTests:
+    @pytest.mark.parametrize(
+        "code",
+        [
+            ConfluentKafkaError._TRANSPORT,
+            ConfluentKafkaError._ALL_BROKERS_DOWN,
+            ConfluentKafkaError._RESOLVE,
+            ConfluentKafkaError._TIMED_OUT,
+        ],
+    )
+    def test_connection_errors_warn_and_keep_callbacks(self, code):
+        error = ConfluentKafkaError(code)
+        metrics, custom = Mock(), Mock()
+        with patch("confluent_kafka_helpers.callbacks.logger") as logger:
+            assert default_error_cb(error, custom, metrics) is None
+        metrics.assert_called_once_with(error)
+        custom.assert_called_once_with(error)
+        logger.warning.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ConfluentKafkaError(ConfluentKafkaError._TRANSPORT, fatal=True),
+            ConfluentKafkaError(ConfluentKafkaError._AUTHENTICATION),
+            ConfluentKafkaError(ConfluentKafkaError.TOPIC_AUTHORIZATION_FAILED),
+            ConfluentKafkaError(ConfluentKafkaError.UNKNOWN_TOPIC_OR_PART),
+            ConfluentKafkaError(ConfluentKafkaError._INVALID_ARG),
+        ],
+    )
+    def test_other_errors_still_raise_after_callbacks(self, error):
+        metrics, custom = Mock(), Mock()
+        with pytest.raises(KafkaError):
+            default_error_cb(error, custom, metrics)
+        metrics.assert_called_once_with(error)
+        custom.assert_called_once_with(error)
+
+    def test_custom_callback_exception_is_not_suppressed(self):
+        error = ConfluentKafkaError(ConfluentKafkaError._TRANSPORT)
+        with pytest.raises(ValueError, match="custom"):
+            default_error_cb(error, Mock(side_effect=ValueError("custom")), Mock())
+
     def test_should_send_metrics(self):
         send_metrics = Mock()
         with pytest.raises(KafkaError):

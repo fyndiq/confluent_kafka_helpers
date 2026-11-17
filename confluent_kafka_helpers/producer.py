@@ -114,20 +114,16 @@ class AvroProducer(ConfluentAvroProducer):
         except KeyError:
             raise TopicNotRegistered(f"Topic {topic} is not registered")
 
-        if self.value_serializer:
-            with tracer.start_span(name="kafka.serialize_message") as span:
-                span.set_attribute(
-                    attrs.MESSAGING_OPERATION_TYPE,
-                    attrs.MESSAGING_OPERATION_TYPE_VALUE_CREATE,
-                )
+        with tracer.start_span(
+            name="kafka.produce", kind=SpanKind.PRODUCER, resource_name=topic
+        ) as span:
+            if self.value_serializer:
                 value = self.value_serializer(value)
 
-        message_class = value.get("class") if isinstance(value, dict) else None
-        resource_name = f"{topic}:{message_class}" if message_class else topic
+            message_class = value.get("class") if isinstance(value, dict) else None
+            resource_name = f"{topic}:{message_class}" if message_class else topic
+            span.set_attribute(datadog.RESOURCE_NAME, resource_name)
 
-        with tracer.start_span(
-            name="kafka.produce", kind=SpanKind.PRODUCER, resource_name=resource_name
-        ) as span:
             logger.info("Producing message", topic=topic, key=key, value=value, headers=headers)
             tracer.inject_headers(headers=headers)
 
@@ -182,5 +178,4 @@ class AvroProducer(ConfluentAvroProducer):
             super().flush(*args, **kwargs)
 
     def poll(self, *args, **kwargs):
-        with tracer.start_span(name="kafka.poll", kind=SpanKind.PRODUCER):
-            super().poll(*args, **kwargs)
+        super().poll(*args, **kwargs)

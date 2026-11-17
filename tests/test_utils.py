@@ -1,4 +1,4 @@
-from unittest.mock import Mock
+from unittest.mock import Mock, call, patch
 
 import pytest
 
@@ -6,6 +6,35 @@ from confluent_kafka_helpers.utils import retry_exception
 
 
 class TestRetryException:
+    @pytest.mark.parametrize("delay,expected", [(0, []), (0.1, [call(0.1), call(0.2)])])
+    def test_backoff_is_opt_in_and_only_between_attempts(self, delay, expected):
+        failure = ValueError("failed")
+        operation = Mock(side_effect=failure)
+        wrapped = retry_exception([ValueError], delay=delay)(operation)
+        with patch("confluent_kafka_helpers.utils.time.sleep") as sleep:
+            with pytest.raises(ValueError) as raised:
+                wrapped()
+        assert raised.value is failure
+        assert operation.call_count == 3
+        assert sleep.call_args_list == expected
+
+    def test_backoff_respects_initial_delay(self):
+        operation = Mock(side_effect=ValueError)
+        wrapped = retry_exception([ValueError], delay=2)(operation)
+        with patch("confluent_kafka_helpers.utils.time.sleep") as sleep:
+            with pytest.raises(ValueError):
+                wrapped()
+        assert sleep.call_args_list == [call(2), call(4)]
+
+    def test_does_not_delay_permanent_errors(self):
+        wrapped = retry_exception([ValueError], condition=lambda exc: False, delay=0.1)(
+            Mock(side_effect=ValueError)
+        )
+        with patch("confluent_kafka_helpers.utils.time.sleep") as sleep:
+            with pytest.raises(ValueError):
+                wrapped()
+        sleep.assert_not_called()
+
     def test_maximum_retries_and_reraises_exception(self):
         @retry_exception([ValueError])
         def foo(mock):
