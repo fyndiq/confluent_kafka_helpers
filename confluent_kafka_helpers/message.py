@@ -31,7 +31,7 @@ class Message:
         self._meta = MessageMetadata(kafka_message)
 
     def __repr__(self):
-        return f"Message(" f"value={self.value}, " f"_raw={self._raw}, " f"_meta={self._meta}" f")"
+        return f"Message(value={self.value}, _raw={self._raw}, _meta={self._meta})"
 
     def __bool__(self):
         return True if self.value else False
