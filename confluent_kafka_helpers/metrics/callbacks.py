@@ -18,6 +18,13 @@ def on_delivery_cb_metrics(error, message, statsd=statsd):
         statsd.increment(f"{base_metric}.producer.message.count.error")
 
 
+def on_commit_cb_metrics(error, partitions, statsd=statsd):
+    if error is not None:
+        statsd.increment(
+            f"{base_metric}.consumer.commit.count.error", tags=[f"code:{error.code()}"]
+        )
+
+
 def stats_cb_metrics(stats):
     stats = json.loads(stats)
     instance_type = stats.get("type")

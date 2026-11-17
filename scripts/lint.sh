@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -e
-flake8 .
-mypy confluent_kafka_helpers/
+uv run --locked flake8 confluent_kafka_helpers/ tests/
+uv run --locked mypy confluent_kafka_helpers/

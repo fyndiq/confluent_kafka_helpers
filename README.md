@@ -1,6 +1,6 @@
 # Confluent Kafka helpers
 
-[![build](https://circleci.com/gh/fyndiq/confluent_kafka_helpers/tree/master.svg?style=shield)](https://circleci.com/gh/fyndiq/confluent_kafka_helpers/tree/master)
+[![CI](https://github.com/fyndiq/confluent_kafka_helpers/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/fyndiq/confluent_kafka_helpers/actions/workflows/ci.yml)
 [![version](https://img.shields.io/pypi/v/confluent-kafka-helpers.svg)](https://pypi.org/project/confluent-kafka-helpers/)
 [![downloads](https://img.shields.io/pypi/dm/confluent-kafka-helpers.svg)](https://pypi.org/project/confluent-kafka-helpers/)
 [![license](https://img.shields.io/pypi/l/confluent-kafka-helpers.svg)](https://pypi.org/project/confluent-kafka-helpers/)
@@ -8,6 +8,35 @@
 Library built on top of [Confluent Kafka
 Python](https://github.com/confluentinc/confluent-kafka-python) adding
 abstractions for consuming and producing messages in a more Pythonic way.
+
+## Development
+
+Install [uv](https://docs.astral.sh/uv/) 0.13.1 and run `make setup` to install
+the locked development dependencies with Python 3.10. Run `make test` for unit
+tests and lint checks, and `make build` to build a wheel and source distribution
+in `dist/`. `make lock` updates the lockfile after dependency changes.
+
+Runtime requirements and package metadata are defined in `pyproject.toml`.
+`uv.lock` fixes development versions. Commitizen 4.13.9 uses the uv version
+provider and annotated `v<version>` tags. Publishing runs through the release
+workflow. See [Releases](docs/releases.md) for setup, prereleases, and recovery.
+
+## Kafka errors and commits
+
+- Nonfatal global `_TRANSPORT`, `_ALL_BROKERS_DOWN`, `_RESOLVE` and `_TIMED_OUT`
+  errors log warnings. Metrics and custom error callbacks still run. Native
+  librdkafka log severity is unchanged.
+- Fatal and other global errors still raise `KafkaError`; delivery failures still
+  raise `KafkaDeliveryError`.
+- Synchronous commits retry transient coordinator errors, request timeouts and
+  broker unavailability up to three attempts, with 0.1 and 0.2 second delays.
+  Other failures raise, except for lost membership or assignment.
+- Lost membership or assignment emits a warning and commit error metric without
+  retrying stale offsets. Handlers must tolerate redelivery. `commit()` returns
+  `None`, which does not confirm success.
+- Asynchronous failures emit metrics and log warnings for transient errors or
+  assignment loss, and errors otherwise. Custom `on_commit` callbacks own
+  reporting. Asynchronous commit failures are not retried.
 
 ## Graceful shutdown
 
@@ -41,6 +70,26 @@ for message in consumer:
   `terminationGracePeriodSeconds` if the process hasn't exited. The default value for this in k8s is 30 seconds. If handling a single message can take longer than that the application need to configure a longer `terminationGracePeriodSeconds` in the k8s manifest
 - The flag is process-wide. Tests that exercise it must clear it (see
   `tests/test_signals.py` for the autouse reset fixture pattern).
+
+## Header propagation
+
+When a service consumes one Kafka message and produces another, this library can copy selected
+headers from the old message to the new one. These headers are called propagated headers.
+
+The library always tries to copy these headers:
+
+- `origin_action_type`: the action that started the chain of messages.
+- `action_started_at`: when that action started, as epoch milliseconds.
+
+They help downstream services measure how long the whole chain took. Services do not need to list
+these two headers in `headers.propagate`; the library includes them by default. If an incoming
+message does not have one of these headers, the library leaves it out and does not create it.
+
+Services can still add more headers with `headers.propagate`, for example:
+
+```python
+AvroConsumer({**config, "headers.propagate": ["correlation_id"]})
+```
 
 ## OpenTelemetry (OTEL)
 

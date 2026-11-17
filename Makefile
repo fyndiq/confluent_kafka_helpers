@@ -10,12 +10,9 @@ lint:
 build:
 	./scripts/build.sh
 
-publish:
-	./scripts/publish.sh
-
-pip-update:
-	./scripts/pip-update.sh
+lock:
+	uv lock
 
 test: unit-test lint
 
-.PHONY: test build
+.PHONY: unit-test setup lint build lock test

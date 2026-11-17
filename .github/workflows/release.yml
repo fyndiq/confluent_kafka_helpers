@@ -1,0 +1,307 @@
+name: Release
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: Branch, tag, or commit for a prerelease. Leave empty for stable releases.
+        type: string
+        default: ""
+      target_version:
+        description: Target stable major.minor.patch version, for example 2.0.0.
+        type: string
+        default: ""
+      phase:
+        description: alpha, beta, or rc. Leave empty for stable releases or recovery.
+        type: string
+        default: ""
+      resume_tag:
+        description: Existing release tag to resume using its retained originals.
+        type: string
+        default: ""
+      announce_tag:
+        description: Completed stable tag to announce only. Do not combine with release inputs.
+        type: string
+        default: ""
+      release_retry:
+        description: Internal stale-source retry counter. Leave at zero.
+        type: string
+        default: "0"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: library-release-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    if: inputs.announce_tag == '' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    environment: qlty-publish
+    outputs:
+      inspected-attempt: ${{ steps.inspect.outputs.inspected-attempt }}
+      outcome: ${{ steps.inspect.outputs.outcome }}
+      mode: ${{ steps.inspect.outputs.mode }}
+      followup-stable: ${{ steps.inspect.outputs.followup-stable }}
+      source: ${{ steps.inspect.outputs.source-sha }}
+      resume: ${{ steps.inspect.outputs.resume-tag }}
+      version: ${{ steps.inspect.outputs.next-version }}
+      candidate-attempt: ${{ steps.inspect.outputs.candidate-attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          path: inspected-source
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          permission-contents: write
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: projects/59639524427/locations/global/workloadIdentityPools/github-actions/providers/github-deploy
+          service_account: gha-qlty-publish@fyndiq.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: ./.github/actions/library-release
+        id: inspect
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DISPATCH_TOKEN: ${{ github.token }}
+        with:
+          command: inspect
+          source_ref: ${{ inputs.source_ref }}
+          target_version: ${{ inputs.target_version }}
+          phase: ${{ inputs.phase }}
+          working-directory: inspected-source
+          resume_tag: ${{ inputs.resume_tag }}
+          branch: ${{ github.event.repository.default_branch }}
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.inspect.outputs.next-version != '' && steps.inspect.outputs.candidate-attempt == '' && steps.inspect.outputs.allocation-retained != 'true'
+        with:
+          name: library-allocation
+          path: ${{ runner.temp }}/library-allocation/
+          if-no-files-found: error
+          retention-days: 90
+
+  checks:
+    needs: inspect
+    if: needs.inspect.outputs.outcome == 'prepare'
+    permissions:
+      contents: read
+    uses: ./.github/workflows/checks.yml
+    with:
+      source_ref: ${{ needs.inspect.outputs.source }}
+
+  prepare:
+    needs: [inspect, checks]
+    if: needs.inspect.outputs.outcome == 'prepare'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    outputs:
+      version: ${{ steps.prepare.outputs.next-version }}
+      candidate-attempt: ${{ steps.prepare.outputs.candidate-attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.inspect.outputs.source }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        id: python
+        with:
+          python-version: "3.10"
+      - uses: ./.github/actions/library-release
+        id: prepare
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISPATCH_TOKEN: ${{ github.token }}
+          UV_PYTHON: ${{ steps.python.outputs.python-path }}
+        with:
+          command: prepare
+          inspected_attempt: ${{ needs.inspect.outputs.inspected-attempt }}
+          mode: ${{ needs.inspect.outputs.mode }}
+          source_sha: ${{ needs.inspect.outputs.source }}
+          version: ${{ needs.inspect.outputs.version }}
+          working-directory: source
+          release_paths: |
+            confluent_kafka_helpers/*
+            tests/*
+            pyproject.toml
+            setup.cfg
+            README.md
+          directory: ${{ runner.temp }}/library-candidate
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: steps.prepare.outputs.next-version != ''
+        with:
+          name: library-candidate-${{ steps.prepare.outputs.candidate-attempt }}
+          path: ${{ runner.temp }}/library-candidate/
+          if-no-files-found: error
+          retention-days: 90
+
+  preparation-status:
+    needs: [inspect, prepare]
+    if: always() && inputs.announce_tag == ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/library-release
+        with:
+          command: receipt
+          preparation_result: ${{ needs.prepare.result }}
+          inspection_result: ${{ needs.inspect.result }}
+          version: ${{ needs.prepare.outputs.version }}
+          mode: ${{ needs.inspect.outputs.mode }}
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: library-preparation-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/library-preparation/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    needs: [inspect, prepare]
+    if: >-
+      always() && needs.inspect.result == 'success' &&
+      (needs.inspect.outputs.outcome == 'resume' || needs.inspect.outputs.outcome == 'reuse' ||
+       (needs.prepare.result == 'success' && needs.prepare.outputs.version != ''))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: qlty-publish
+    permissions:
+      contents: read
+      actions: write
+      id-token: write
+    outputs:
+      prerelease: ${{ steps.publish.outputs.prerelease }}
+      completed: ${{ steps.publish.outputs.completed }}
+      tag: ${{ steps.publish.outputs.tag }}
+      version: ${{ steps.publish.outputs.version }}
+      package: ${{ steps.publish.outputs.package }}
+      release-url: ${{ steps.publish.outputs.release-url }}
+      release-id: ${{ steps.publish.outputs.release-id }}
+    steps:
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          permission-contents: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: needs.inspect.outputs.outcome != 'resume'
+        with:
+          name: library-candidate-${{ needs.inspect.outputs.candidate-attempt || needs.prepare.outputs.candidate-attempt }}
+          path: ${{ runner.temp }}/library-candidate
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: projects/59639524427/locations/global/workloadIdentityPools/github-actions/providers/github-deploy
+          service_account: gha-qlty-publish@fyndiq.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.1"
+          enable-cache: false
+      - name: Install registry keyring
+        run: uv tool install --with keyrings.google-artifactregistry-auth==1.1.2 keyring==25.7.0
+      - uses: ./.github/actions/library-release
+        id: publish
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DISPATCH_TOKEN: ${{ github.token }}
+          PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+        with:
+          command: publish
+          followup_stable: ${{ needs.inspect.outputs.followup-stable }}
+          working-directory: .
+          source_sha: ${{ needs.inspect.outputs.source }}
+          version: ${{ needs.inspect.outputs.version }}
+          directory: ${{ runner.temp }}/library-candidate
+          resume_tag: ${{ needs.inspect.outputs.resume }}
+          branch: ${{ github.event.repository.default_branch }}
+          release_retry: ${{ inputs.release_retry || '0' }}
+
+  announce:
+    needs: publish
+    if: >-
+      always() && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+      (inputs.announce_tag != '' ||
+       (needs.publish.result == 'success' && needs.publish.outputs.completed == 'true' &&
+        needs.publish.outputs.prerelease == 'false'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: qlty-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate announcement dispatch
+        if: >-
+          inputs.announce_tag != '' &&
+          (inputs.source_ref != '' || inputs.target_version != '' || inputs.phase != '' ||
+           inputs.resume_tag != '' || inputs.release_retry != '0')
+        run: |
+          echo 'Announcement retry cannot include release inputs.' >&2
+          exit 1
+      - uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        id: app
+        with:
+          app-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_KEY }}
+          permission-contents: write
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+      - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: projects/59639524427/locations/global/workloadIdentityPools/github-actions/providers/github-deploy
+          service_account: gha-qlty-publish@fyndiq.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+      - uses: ./.github/actions/library-release
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEPLOYS_BOT_TOKEN }}
+        with:
+          command: announce
+          announce_tag: ${{ inputs.announce_tag || needs.publish.outputs.tag }}
+          slack_channel: C0CE6LY0T0C
