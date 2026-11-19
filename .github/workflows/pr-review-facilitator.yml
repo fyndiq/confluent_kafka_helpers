@@ -1,0 +1,27 @@
+name: PR Review Facilitator
+
+on:
+  pull_request:
+    types:
+      - ready_for_review
+      - opened
+      - reopened
+      - converted_to_draft
+      - closed
+      - synchronize
+      - review_requested
+      - review_request_removed
+  pull_request_review:
+    types: [submitted, dismissed]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  facilitate:
+    uses: fyndiq/.github/.github/workflows/pr-review-facilitator-reusable.yml@master
+    with:
+      slack_channel_id: platform
+    secrets: inherit
