@@ -128,7 +128,7 @@ The consumer config `headers.propagate` lists header keys (e.g. `correlation_id`
 this is automatic while the message is handled.
 
 When consuming in batches, no headers are set automatically, because there is no single current
-message. Each message has `message.propagated_headers` (the configured keys only). Use
+message. Each message has `message.propagated_headers` (the default and configured keys only). Use
 `message.propagate()` around the produce calls that come from that message:
 
 ```python
