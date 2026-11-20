@@ -246,7 +246,6 @@ class AvroConsumer:
         while True:
             raw_messages, stop = self._collect_batch()
             if raw_messages or not stop:
-                clear_propagated_headers()
                 messages = [Message(m, self.propagate_header_keys) for m in raw_messages]
                 if not messages:  # non_blocking idle tick: nothing to trace
                     yield messages
