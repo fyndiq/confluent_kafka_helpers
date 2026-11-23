@@ -96,8 +96,6 @@ def preview(
     release_paths: list[str],
     base: str | None = None,
     head: str = "HEAD",
-    *,
-    allow_historical_merges: bool = False,
 ) -> dict[str, str]:
     if git_output("rev-parse", "--is-shallow-repository") != "false":
         raise CheckError(
@@ -141,11 +139,7 @@ def preview(
         if not introduced:
             raise CheckError("The PR range is empty. Check the supplied base and head.")
         validate_commits(
-            [
-                commit
-                for commit in introduced
-                if not allow_historical_merges or len(commit.parents) < 2
-            ],
+            [commit for commit in introduced if len(commit.parents) < 2],
             cz,
         )
         comparison = git_output("merge-base", base, head)

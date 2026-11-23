@@ -215,12 +215,39 @@ class LibraryCI(unittest.TestCase):
         self.commit("docs: explain history")
         self.assertEqual(self.preview()["next-version"], "1.2.4")
 
-    def test_new_merge_commit_does_not_bypass_validation(self):
+    def test_new_merge_commit_preserves_release_increment(self):
         self.git("checkout", "-b", "new-branch")
         self.commit("fix: branch", "package.py")
         self.git("checkout", "master")
         self.git("merge", "--no-ff", "new-branch", "-m", "Merge new branch")
-        with self.assertRaisesRegex(ci.CheckError, "Invalid Conventional"):
+        self.assertEqual(self.preview()["next-version"], "1.2.4")
+
+    def test_new_merge_commit_does_not_hide_invalid_ordinary_commit(self):
+        self.git("checkout", "-b", "new-branch")
+        invalid = self.commit("invalid branch commit", "package.py")
+        self.commit("fix: valid latest", "package.py")
+        self.git("checkout", "master")
+        self.git("merge", "--no-ff", "new-branch", "-m", "Merge new branch")
+        with self.assertRaisesRegex(ci.CheckError, invalid[:12]):
+            self.preview()
+
+    def test_merging_master_into_pr_does_not_require_release(self):
+        self.git("checkout", "-b", "pr")
+        self.commit("ci: update workflow", "ci.yml")
+        self.git("checkout", "master")
+        self.commit("docs: explain usage")
+        self.base = self.git("rev-parse", "HEAD")
+        self.git("checkout", "pr")
+        self.git("merge", "--no-ff", "master", "-m", "Merge branch 'master' into pr")
+        self.assertEqual(self.preview()["next-version"], "")
+        self.assertEqual(ci.preview(["package.py"], "v1.2.3")["next-version"], "")
+
+    def test_merge_does_not_bypass_source_release_requirement(self):
+        self.git("checkout", "-b", "new-branch")
+        self.commit("chore: change source", "package.py")
+        self.git("checkout", "master")
+        self.git("merge", "--no-ff", "new-branch", "-m", "Merge new branch")
+        with self.assertRaisesRegex(ci.CheckError, "Packaged content changed"):
             self.preview()
 
     def test_missing_baseline_is_an_error(self):

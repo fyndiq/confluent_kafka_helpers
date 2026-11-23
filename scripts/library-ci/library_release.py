@@ -151,7 +151,7 @@ def prepare(
     release = preview(paths)
     # Historical merge envelopes may be nonconventional; validate all ordinary commits.
     if resolve(release["baseline"]) != resolve("HEAD"):
-        preview(paths, release["baseline"], allow_historical_merges=True)
+        preview(paths, release["baseline"])
     if mode == "prerelease":
         parsed = Version(version)
         if (
