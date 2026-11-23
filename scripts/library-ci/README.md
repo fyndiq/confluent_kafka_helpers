@@ -1,11 +1,14 @@
 # Library CI
 
-`library_ci.py` validates every PR-introduced complete commit message with
-Commitizen's Conventional Commits schema, builds a wheel and source distribution
+`library_ci.py` validates every PR-introduced non-merge commit's complete message
+with Commitizen's Conventional Commits schema, builds a wheel and source distribution
 with the project's build backend, and calculates a read-only next-version preview.
 The reusable workflow and composite action supply the pinned tools. No publishing
 credentials, API tokens, notifications, Git writes, or version updates are needed
 for this validation.
+
+Merge commits are identified by their multiple parents and skipped during message
+validation. The ordinary commits they introduce are still validated.
 
 Vendored from `fyndiq/.github` at `247d8aacd52026d43e18d9cefd1b1097b3bc900c`.
 Local extensions publish the same retained bytes to qlty and public PyPI.
