@@ -13,6 +13,7 @@ dependencies = [
     "structlog>=17.2.0",
     "confluent-kafka[avro]==2.*",
     "opentelemetry-api>=1.45.2,<2",
+    "opentelemetry-semantic-conventions>=0.66b2,<1",
 ]
 
 [project.urls]

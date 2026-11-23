@@ -3,6 +3,7 @@ from typing import Callable, Iterator
 
 from opentelemetry import trace
 from opentelemetry.context.context import Context
+from opentelemetry.semconv.schemas import Schemas
 from opentelemetry.trace import Link, Span, SpanKind
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
@@ -14,7 +15,7 @@ DEFAULT_EXT_SERVICE_NAME = "kafka"
 
 class OpenTelemetryBackend:
     def __init__(self, name: str, tracer: Callable = trace.get_tracer) -> None:
-        self._tracer = tracer(name, schema_url=attrs.SCHEMA_URL)
+        self._tracer = tracer(name, schema_url=Schemas.V1_27_0.value)
 
     @contextlib.contextmanager
     def start_span(
