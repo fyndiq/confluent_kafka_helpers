@@ -95,10 +95,8 @@ jobs:
           COMMIT_BASE: ${{ inputs.commit_base }}
           RELEASE_PATHS: |
             confluent_kafka_helpers/*
-            tests/*
             pyproject.toml
             setup.cfg
-            README.md
         run: >-
           uv run --no-project --no-config --python 3.12 --with commitizen==4.13.9
           python scripts/library-ci/library_ci.py --working-directory .
