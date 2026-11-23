@@ -12,8 +12,7 @@ license = {text = "MIT"}
 dependencies = [
     "structlog>=17.2.0",
     "confluent-kafka[avro]==2.*",
-    "opentelemetry-api==1.27.0",
-    "opentelemetry-semantic-conventions==0.48b0",
+    "opentelemetry-api>=1.45.2,<2",
 ]
 
 [project.urls]
