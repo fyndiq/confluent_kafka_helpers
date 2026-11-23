@@ -1,3 +1,9 @@
+## v1.7.1 (2026-11-23)
+
+### Fix
+
+- **PLA-625**: grant facilitator checks read permission ([#124](https://github.com/fyndiq/confluent_kafka_helpers/pull/124))
+
 ## v1.7.0 (2026-11-12)
 
 ### Feat
