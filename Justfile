@@ -10,7 +10,7 @@ lint:
 unit-test:
     @./scripts/unit-test.sh
 
-test: lint unit-test
+test: unit-test lint
 
 build:
     @./scripts/build.sh
