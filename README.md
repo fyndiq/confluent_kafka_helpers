@@ -11,10 +11,11 @@ abstractions for consuming and producing messages in a more Pythonic way.
 
 ## Development
 
-Install [uv](https://docs.astral.sh/uv/) 0.13.1 and run `make setup` to install
-the locked development dependencies with Python 3.10. Run `make test` for unit
-tests and lint checks, and `make build` to build a wheel and source distribution
-in `dist/`. `make lock` updates the lockfile after dependency changes.
+Install [uv](https://docs.astral.sh/uv/) 0.13.1 and [just](https://just.systems/)
+1.46.0, then run `just setup` to install the locked development dependencies
+with Python 3.10. Run `just test` for unit tests and lint checks, and
+`just build` to build a wheel and source distribution in `dist/`. `just lock`
+updates the lockfile after dependency changes.
 
 Runtime requirements and package metadata are defined in `pyproject.toml`.
 `uv.lock` fixes development versions. Commitizen 4.13.9 uses the uv version

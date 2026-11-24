@@ -66,9 +66,12 @@ jobs:
         with:
           version: "0.13.1"
           enable-cache: true
-      - run: make setup
-      - run: make unit-test
-      - run: make lint
+      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+        with:
+          just-version: "1.46.0"
+      - run: just setup
+      - run: just unit-test
+      - run: just lint
 
   library:
     name: commits / build / release preview
