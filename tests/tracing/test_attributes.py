@@ -34,9 +34,10 @@ def test_attributes_match_semconv_v1_27_0():
 
 
 def test_attributes_do_not_import_incubating_semconv():
-    tree = ast.parse(inspect.getsource(attributes))
-    imported = [node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)]
-    imported += [
-        alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names
-    ]
-    assert [name for name in imported if name and "_incubating" in name] == []
+    imported = []
+    for node in ast.walk(ast.parse(inspect.getsource(attributes))):
+        if isinstance(node, ast.ImportFrom):
+            imported.append(node.module or "")
+        elif isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+    assert [name for name in imported if "_incubating" in name] == []
