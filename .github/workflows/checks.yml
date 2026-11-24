@@ -66,9 +66,9 @@ jobs:
         with:
           version: "0.13.1"
           enable-cache: true
-      - run: make setup
-      - run: make unit-test
-      - run: make lint
+      - run: ./scripts/setup.sh
+      - run: ./scripts/unit-test.sh
+      - run: ./scripts/lint.sh
 
   library:
     name: commits / build / release preview
