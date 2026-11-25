@@ -485,15 +485,20 @@ class TestAvroConsumerBatches:
 
         assert next(consumer).value == b"foobar"
 
+    @pytest.mark.parametrize("batch_size", [10, 100])
     def test_yields_full_batches_then_partial_before_shutdown(
-        self, batch_consumer, confluent_message
+        self, batch_consumer, confluent_message, batch_size
     ):
         message = confluent_message()
-        consumer = batch_consumer([message] * 250, config_override={"batch_max_size": 10})
+        partial_size = batch_size // 2
+        consumer = batch_consumer(
+            [message] * (2 * batch_size + partial_size),
+            config_override={"batch_max_size": batch_size},
+        )
 
         batches = list(consumer.batches())
 
-        assert [len(b) for b in batches] == [100, 100, 50]
+        assert [len(b) for b in batches] == [batch_size, batch_size, partial_size]
         assert all(m.value == b"foobar" for b in batches for m in b)
 
     def test_blocking_idle_consumer_yields_nothing(self, batch_consumer):
@@ -569,7 +574,7 @@ class TestAvroConsumerBatches:
         consumer = batch_consumer([message, None, message], config_override={"non_blocking": True})
 
         assert [len(b) for b in consumer.batches()] == [1, 1]
-        consumer.consumer.consume.assert_called_with(num_messages=100, timeout=0.1)
+        consumer.consumer.consume.assert_called_with(num_messages=10, timeout=0.1)
 
     def test_stop_on_eof_yields_partial_batch_then_stops(self, batch_consumer, confluent_message):
         eof = confluent_message()
