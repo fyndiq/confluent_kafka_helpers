@@ -155,7 +155,32 @@ passed to `produce()` override propagated headers with the same key.
 ### Tracing
 
 Each batch gets one `kafka.consume` span. It starts a new trace and links to every message's
-trace context.
+trace context. These links keep batch-level visibility without choosing one message as the parent
+for the whole batch.
+
+When a batch handler processes messages one by one, use `message.process()` around each individual
+handler invocation. It starts a `kafka.process` span that continues that message's incoming trace,
+sets the message's propagated headers for any `producer.produce()` calls inside the block, and
+restores the previous headers and active span when the block exits. Keep using `message.propagate()`
+when you only need to forward headers around produce calls and do not want an extra processing span.
+
+For threaded handlers, enter the context inside the worker function, not around `executor.submit()`:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+
+def handle_message(message):
+    with message.process():
+        update_search_index(message.value)
+        producer.produce(build_projection_event(message.value))
+
+
+def handle_batch(batch):
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(handle_message, batch))
+    producer.flush()
+```
 
 OpenTelemetry keeps at most 128 links per span by default and silently drops the rest. If you raise
 `batch_max_size` above 128, also raise `OTEL_SPAN_LINK_COUNT_LIMIT`.
