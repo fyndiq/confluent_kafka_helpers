@@ -11,36 +11,32 @@ References:
  - https://github.com/open-telemetry/semantic-conventions/blob/v1.27.0/docs/messaging/kafka.md
 """
 
-from opentelemetry.semconv._incubating.attributes import messaging_attributes, server_attributes
-from opentelemetry.semconv._incubating.attributes.messaging_attributes import (
-    MessagingOperationTypeValues,
-    MessagingSystemValues,
-)
+# Spelled out rather than imported from opentelemetry.semconv._incubating, whose
+# beta releases can rename or drop these names under any consumer's resolved version.
+MESSAGING_SYSTEM = "messaging.system"
+MESSAGING_SYSTEM_VALUE_KAFKA = "kafka"
 
-MESSAGING_SYSTEM = messaging_attributes.MESSAGING_SYSTEM
-MESSAGING_SYSTEM_VALUE_KAFKA = MessagingSystemValues.KAFKA.value
+SERVER_ADDRESS = "server.address"
+SERVER_PORT = "server.port"
 
-SERVER_ADDRESS = server_attributes.SERVER_ADDRESS
-SERVER_PORT = server_attributes.SERVER_PORT
-
-MESSAGING_OPERATION_NAME = messaging_attributes.MESSAGING_OPERATION_NAME
+MESSAGING_OPERATION_NAME = "messaging.operation.name"
 MESSAGING_OPERATION_NAME_VALUE_PRODUCE = "produce"
 MESSAGING_OPERATION_NAME_VALUE_CONSUME = "consume"
 
-MESSAGING_OPERATION_TYPE = messaging_attributes.MESSAGING_OPERATION_TYPE
-MESSAGING_OPERATION_TYPE_VALUE_CREATE = MessagingOperationTypeValues.CREATE.value
-MESSAGING_OPERATION_TYPE_VALUE_PROCESS = MessagingOperationTypeValues.PROCESS.value
-MESSAGING_OPERATION_TYPE_VALUE_PUBLISH = MessagingOperationTypeValues.PUBLISH.value
-MESSAGING_OPERATION_TYPE_VALUE_RECEIVE = MessagingOperationTypeValues.RECEIVE.value
+MESSAGING_OPERATION_TYPE = "messaging.operation.type"
+MESSAGING_OPERATION_TYPE_VALUE_CREATE = "create"
+MESSAGING_OPERATION_TYPE_VALUE_PROCESS = "process"
+MESSAGING_OPERATION_TYPE_VALUE_PUBLISH = "publish"
+MESSAGING_OPERATION_TYPE_VALUE_RECEIVE = "receive"
 
-MESSAGING_CLIENT_ID = messaging_attributes.MESSAGING_CLIENT_ID
-MESSAGING_CONSUMER_GROUP_NAME = messaging_attributes.MESSAGING_CONSUMER_GROUP_NAME
-MESSAGING_DESTINATION_NAME = messaging_attributes.MESSAGING_DESTINATION_NAME
-MESSAGING_DESTINATION_PARTITION_ID = messaging_attributes.MESSAGING_DESTINATION_PARTITION_ID
-MESSAGING_KAFKA_MESSAGE_KEY = messaging_attributes.MESSAGING_KAFKA_MESSAGE_KEY
-MESSAGING_KAFKA_MESSAGE_OFFSET = messaging_attributes.MESSAGING_KAFKA_MESSAGE_OFFSET
-MESSAGING_KAFKA_MESSAGE_TOMBSTONE = messaging_attributes.MESSAGING_KAFKA_MESSAGE_TOMBSTONE
-MESSAGING_MESSAGE_CONVERSATION_ID = messaging_attributes.MESSAGING_MESSAGE_CONVERSATION_ID
+MESSAGING_CLIENT_ID = "messaging.client.id"
+MESSAGING_CONSUMER_GROUP_NAME = "messaging.consumer.group.name"
+MESSAGING_DESTINATION_NAME = "messaging.destination.name"
+MESSAGING_DESTINATION_PARTITION_ID = "messaging.destination.partition.id"
+MESSAGING_KAFKA_MESSAGE_KEY = "messaging.kafka.message.key"
+MESSAGING_KAFKA_MESSAGE_OFFSET = "messaging.kafka.message.offset"
+MESSAGING_KAFKA_MESSAGE_TOMBSTONE = "messaging.kafka.message.tombstone"
+MESSAGING_MESSAGE_CONVERSATION_ID = "messaging.message.conversation_id"
 
 # custom attributes not part of the semantic ceonvention
 PRODUCER_SERVICE_NAME = "confluent_kafka_helpers.producer.service.name"
