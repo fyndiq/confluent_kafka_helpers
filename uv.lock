@@ -258,7 +258,7 @@ avro = [
 
 [[package]]
 name = "confluent-kafka-helpers"
-version = "1.7.2"
+version = "1.8.0a3"
 source = { editable = "." }
 dependencies = [
     { name = "confluent-kafka", extra = ["avro"] },
