@@ -470,6 +470,75 @@ def batch_consumer(avro_consumer):
 
 
 class TestAvroConsumerBatches:
+    @staticmethod
+    def _poll_until_empty(messages):
+        pending = list(messages)
+
+        def poll(timeout):
+            if pending:
+                return pending.pop(0)
+            confluent_kafka_helpers.set_shutdown_requested()
+            return None
+
+        return poll
+
+    def test_batch_size_one_uses_single_message_polling_path(
+        self, avro_consumer, confluent_message
+    ):
+        consumer = avro_consumer(
+            config_override={"batch_max_size": 1, "batch_max_wait": 30, "poll_timeout": 0.25}
+        )
+        consumer.consumer.poll = Mock(
+            side_effect=self._poll_until_empty([confluent_message(), confluent_message()])
+        )
+        consumer.consumer.consume = Mock(side_effect=AssertionError("native consume not used"))
+
+        batches = list(consumer.batches())
+
+        assert [len(batch) for batch in batches] == [1, 1]
+        assert all(message.value == b"foobar" for batch in batches for message in batch)
+        assert consumer.consumer.poll.call_args_list == [
+            call(timeout=0.25),
+            call(timeout=0.25),
+            call(timeout=0.25),
+        ]
+        consumer.consumer.consume.assert_not_called()
+
+    def test_batch_size_above_one_uses_native_batch_consume(
+        self, batch_consumer, confluent_message
+    ):
+        consumer = batch_consumer([confluent_message()] * 2, {"batch_max_size": 2})
+
+        batches = list(consumer.batches())
+
+        assert [len(batch) for batch in batches] == [2]
+        consumer.consumer.consume.assert_called_once_with(num_messages=2, timeout=1.0)
+        consumer.consumer.poll.assert_not_called()
+
+    def test_batch_size_one_preserves_batch_handler_and_commit_contract(
+        self, avro_consumer, confluent_message
+    ):
+        consumer = avro_consumer(config_override={"batch_max_size": 1})
+        consumer.consumer.poll = Mock(
+            side_effect=self._poll_until_empty([confluent_message(), confluent_message()])
+        )
+        consumer.consumer.consume = Mock(side_effect=AssertionError("native consume not used"))
+        consumer.consumer.commit = Mock()
+        handler = Mock()
+
+        for batch in consumer.batches():
+            handler(batch)
+            consumer.commit()
+
+        handled_batches = [args.args[0] for args in handler.call_args_list]
+        assert [[message.value for message in batch] for batch in handled_batches] == [
+            [b"foobar"],
+            [b"foobar"],
+        ]
+        assert all(isinstance(batch, list) for batch in handled_batches)
+        assert consumer.consumer.commit.call_count == 2
+        consumer.consumer.consume.assert_not_called()
+
     def test_yields_full_batches_then_partial_on_shutdown(self, batch_consumer, confluent_message):
         message = confluent_message()
         consumer = batch_consumer([message] * 250, config_override={"batch_max_size": 100})
