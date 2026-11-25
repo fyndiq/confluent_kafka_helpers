@@ -1,12 +1,12 @@
 import contextlib
 import socket
 from functools import partial
-from time import monotonic
 from typing import Callable, Iterable, Iterator
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
+from confluent_kafka.avro.serializer import SerializerError
 from opentelemetry.context import Context
 from opentelemetry.trace import SpanKind
 
@@ -101,6 +101,13 @@ class AvroConsumer:
         self.non_blocking = config.pop("non_blocking", False)
         self.batch_max_size = config.pop("batch_max_size", 100)
         self.batch_max_wait = config.pop("batch_max_wait", 1.0)
+        if not 1 <= self.batch_max_size <= 1000000 or self.batch_max_wait < 0:
+            raise ValueError("batch_max_size must be 1..1000000 and batch_max_wait non-negative")
+        self._batch_timeout = self.batch_max_wait
+        if self.non_blocking and poll_timeout >= 0:
+            self._batch_timeout = min(poll_timeout, self.batch_max_wait)
+        self._stop_on_eof = stop_on_eof
+        self._error_handler = error_handler
 
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
@@ -234,8 +241,7 @@ class AvroConsumer:
 
     def batches(self) -> Iterator[list[Message]]:
         """
-        Yield lists of up to `batch_max_size` messages. A partial batch is yielded once
-        `batch_max_wait` seconds have passed since its first message, and on shutdown.
+        Yield up to `batch_max_size` messages per native read. `batch_max_wait` bounds the read.
         Commit after each batch. Don't mix with per-message iteration on the same consumer.
         """
         # stored as self._generator so __exit__ closes it, like the per-message generator
@@ -243,40 +249,52 @@ class AvroConsumer:
         return self._generator
 
     def _batch_generator(self):
-        while True:
-            raw_messages, stop = self._collect_batch()
-            if raw_messages or not stop:
-                messages = [Message(m, self.propagate_header_keys) for m in raw_messages]
-                if not messages:  # non_blocking idle tick: nothing to trace
-                    yield messages
+        transport_errors = 0
+        while not is_shutdown_requested():
+            records = self.consumer.consume(
+                num_messages=self.batch_max_size, timeout=self._batch_timeout
+            )
+            stop = False
+            messages = []
+            for record in records:
+                if error := record.error():
+                    try:
+                        self._error_handler(error)
+                    except EndOfPartition:
+                        # Other partitions' records may follow EOF in the same read.
+                        stop = self._stop_on_eof
+                    except KafkaTransportError:
+                        transport_errors += 1
+                        if transport_errors >= 3:
+                            raise
+                        continue
                 else:
-                    with self._batch_span(messages):
-                        yield messages
+                    self._decode_batch_record(record)
+                    messages.append(Message(record, self.propagate_header_keys))
+                transport_errors = 0
+            if messages:
+                with self._batch_span(messages):
+                    yield messages
+            elif self.non_blocking and not stop and not is_shutdown_requested():
+                yield []
             if stop:
                 break
-        logger.info("Shutdown requested, exiting consumer loop")
+            if not records:
+                transport_errors = 0
 
-    def _collect_batch(self) -> tuple[list, bool]:
-        """Poll until the batch is full or due. Returns (raw messages, stop)."""
-        batch: list = []
-        deadline = None  # starts at the first message
-        while len(batch) < self.batch_max_size:
-            if is_shutdown_requested():
-                return batch, True
-            if deadline is not None and monotonic() >= deadline:
-                break
-            try:
-                message = self._get_message()
-            except EndOfPartition:  # only raised when stop_on_eof is set
-                return batch, True
-            if message is None:
-                if self.non_blocking and not batch:
-                    return batch, False  # idle tick: hand control back, like per-message mode
-                continue
-            batch.append(message)
-            if deadline is None:
-                deadline = monotonic() + self.batch_max_wait
-        return batch, False
+    def _decode_batch_record(self, record):
+        # AvroConsumer only deserializes in poll(); consume() returns wire bytes.
+        decode = self.consumer._serializer.decode_message
+        try:
+            if (value := record.value()) is not None:
+                record.set_value(decode(value, is_key=False))
+            if (key := record.key()) is not None:
+                record.set_key(decode(key, is_key=True))
+        except SerializerError as exc:
+            raise SerializerError(
+                f"Message deserialization failed for message at {record.topic()} "
+                f"[{record.partition()}] offset {record.offset()}: {exc}"
+            ) from exc
 
     @contextlib.contextmanager
     def _batch_span(self, messages: list[Message]):

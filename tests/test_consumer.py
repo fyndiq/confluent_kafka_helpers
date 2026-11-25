@@ -4,6 +4,8 @@ from unittest.mock import ANY, MagicMock, Mock, call, patch
 import pytest
 from confluent_kafka import KafkaError as ConfluentKafkaError
 from confluent_kafka import KafkaException
+from confluent_kafka.avro import loads
+from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 from opentelemetry.context import Context
 from opentelemetry.trace import SpanKind
 
@@ -442,38 +444,26 @@ class TestGracefulShutdown:
             next(iter(consumer))
 
 
-class FakeClock:
-    def __init__(self):
-        self.now = 0.0
-
-    def __call__(self):
-        return self.now
-
-
-class ScriptedPoll:
-    """poll() side effect: returns `items` in order, advancing `clock` by `tick` per call.
-    When exhausted it requests shutdown and returns None, so iteration always ends."""
-
-    def __init__(self, items, clock=None, tick=0.0):
-        self.items = list(items)
-        self.clock = clock
-        self.tick = tick
-
-    def __call__(self, timeout):
-        if self.clock is not None:
-            self.clock.now += self.tick
-        if not self.items:
-            confluent_kafka_helpers.set_shutdown_requested()
-            return None
-        return self.items.pop(0)
-
-
 @pytest.fixture
 def batch_consumer(avro_consumer):
-    def _create(items, config_override=None, clock=None, tick=0.0):
-        # large default max_wait so non-timing tests never flush on the real clock
-        consumer = avro_consumer(config_override={"batch_max_wait": 60, **(config_override or {})})
-        consumer.consumer.poll = MagicMock(side_effect=ScriptedPoll(items, clock, tick))
+    def _create(items, config_override=None):
+        consumer = avro_consumer(config_override=config_override)
+        pending = list(items)
+
+        def read(num_messages, timeout):
+            result = []
+            while pending and len(result) < num_messages:
+                item = pending.pop(0)
+                if item is None:
+                    break
+                result.append(item)
+            if not pending:
+                confluent_kafka_helpers.set_shutdown_requested()
+            return result
+
+        consumer.consumer.consume = Mock(side_effect=read)
+        consumer.consumer._serializer = Mock()
+        consumer.consumer._serializer.decode_message.side_effect = lambda data, is_key: data
         return consumer
 
     return _create
@@ -511,23 +501,23 @@ class TestAvroConsumerBatches:
 
         assert inspect.getgeneratorstate(batches) == inspect.GEN_CLOSED
 
-    def test_flushes_partial_batch_after_max_wait_since_first_message(
-        self, batch_consumer, confluent_message
-    ):
+    def test_native_read_decodes_avro_key_and_value(self, batch_consumer, confluent_message):
         message = confluent_message()
-        clock = FakeClock()
-        # each poll advances the clock 0.5s; first message at t=0.5 -> flush due at t=1.5
-        consumer = batch_consumer(
-            [message, None, None, message],
-            config_override={"batch_max_wait": 1.0},
-            clock=clock,
-            tick=0.5,
-        )
+        registry = Mock()
+        registry.get_by_id.return_value = loads('"string"')
+        serde = MessageSerializer(registry)
+        message.set_key(serde.encode_record_with_schema_id(1, "key", is_key=True))
+        message.set_value(serde.encode_record_with_schema_id(1, "value"))
+        tombstone = confluent_message()
+        tombstone.set_key(None)
+        tombstone.set_value(None)
+        consumer = batch_consumer([message, tombstone], {"batch_max_size": 10, "batch_max_wait": 2})
+        consumer.consumer._serializer = serde
 
-        with patch("confluent_kafka_helpers.consumer.monotonic", clock):
-            batches = list(consumer.batches())
+        (batch,) = list(consumer.batches())
 
-        assert [len(b) for b in batches] == [1, 1]
+        assert [(m._meta.key, m.value) for m in batch] == [("key", "value"), (None, None)]
+        consumer.consumer.consume.assert_called_once_with(num_messages=10, timeout=2)
 
     def test_non_blocking_yields_empty_batch_on_each_idle_poll(
         self, batch_consumer, confluent_message
@@ -538,19 +528,18 @@ class TestAvroConsumerBatches:
 
         assert [len(b) for b in consumer.batches()] == [0, 0, 1]
 
-    def test_non_blocking_does_not_flush_started_batch_on_idle_poll(
-        self, batch_consumer, confluent_message
-    ):
+    def test_non_blocking_yields_partial_read_immediately(self, batch_consumer, confluent_message):
         message = confluent_message()
         consumer = batch_consumer([message, None, message], config_override={"non_blocking": True})
 
-        assert [len(b) for b in consumer.batches()] == [2]
+        assert [len(b) for b in consumer.batches()] == [1, 1]
+        consumer.consumer.consume.assert_called_with(num_messages=100, timeout=0.1)
 
     def test_stop_on_eof_yields_partial_batch_then_stops(self, batch_consumer, confluent_message):
         eof = confluent_message()
         eof.error.return_value = KafkaError(_code=ConfluentKafkaError._PARTITION_EOF)
         message = confluent_message()
-        consumer = batch_consumer([message, message, eof], config_override={"stop_on_eof": True})
+        consumer = batch_consumer([message, eof, message, None, message], {"stop_on_eof": True})
 
         batches = list(consumer.batches())
 
@@ -650,6 +639,12 @@ class TestPropagatedHeadersWhileHandling:
             messages, config_override={"headers.propagate": ["correlation_id"]}
         )
 
+        def poll(timeout):
+            if messages:
+                return messages.pop(0)
+            confluent_kafka_helpers.set_shutdown_requested()
+
+        consumer.consumer.poll = Mock(side_effect=poll)
         seen = [get_propagated_headers() for _ in consumer]
 
         assert seen == [{"correlation_id": "first"}, {"correlation_id": "second"}]
