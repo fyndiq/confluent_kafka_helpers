@@ -1,3 +1,9 @@
+## v1.7.2 (2026-11-24)
+
+### Fix
+
+- add commitizen commit-msg hook ([7c9f33a](https://github.com/fyndiq/confluent_kafka_helpers/commit/7c9f33a242a36ca518b4a6d4c5dd180c641ecd26))
+
 ## v1.7.1 (2026-11-23)
 
 ### Fix

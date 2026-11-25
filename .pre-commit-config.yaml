@@ -1,0 +1,7 @@
+default_stages: ['pre-push']
+repos:
+  - repo: https://github.com/commitizen-tools/commitizen
+    rev: v4.13.9
+    hooks:
+      - id: commitizen
+        stages: [commit-msg]

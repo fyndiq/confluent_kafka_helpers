@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "confluent-kafka-helpers"
-version = "1.7.1"
+version = "1.7.2"
 description = "Helpers for Confluent's Kafka Python client"
 requires-python = ">=3.10"
 authors = [{name = "Fyndiq AB", email = "support@fyndiq.com"}]
@@ -29,6 +29,7 @@ namespaces = false
 [dependency-groups]
 dev = [
     "commitizen==4.13.9",
+    "pre-commit>=4.0.1,<5",
     "flake8==7.1.1",
     "flake8-black==0.3.6",
     "flake8-eradicate==1.5.0",
