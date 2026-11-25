@@ -203,7 +203,7 @@ class TestAvroConsumer:
 
     def test_batch_config_defaults(self, avro_consumer):
         consumer = avro_consumer()
-        assert consumer.batch_max_size == 100
+        assert consumer.batch_max_size == 10
         assert consumer.batch_max_wait == 1.0
 
     def test_batch_config_is_popped_from_kafka_config(self, avro_consumer):
@@ -489,7 +489,7 @@ class TestAvroConsumerBatches:
         self, batch_consumer, confluent_message
     ):
         message = confluent_message()
-        consumer = batch_consumer([message] * 250, config_override={"batch_max_size": 100})
+        consumer = batch_consumer([message] * 250, config_override={"batch_max_size": 10})
 
         batches = list(consumer.batches())
 

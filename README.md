@@ -105,7 +105,7 @@ AvroConsumer({**config, "headers.propagate": ["correlation_id"]})
 ```python
 consumer = AvroConsumer({
     ...,
-    "batch_max_size": 100,  # default 100
+    "batch_max_size": 10,  # default 10
     "batch_max_wait": 1.0,  # seconds, default 1.0
 })
 

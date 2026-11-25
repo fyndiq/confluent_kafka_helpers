@@ -127,7 +127,7 @@ class AvroConsumer:
         stop_on_eof = config.pop("stop_on_eof", False)
         poll_timeout = config.pop("poll_timeout", 0.1)
         self.non_blocking = config.pop("non_blocking", False)
-        self.batch_max_size = config.pop("batch_max_size", 100)
+        self.batch_max_size = config.pop("batch_max_size", 10)
         self.batch_max_wait = config.pop("batch_max_wait", 1.0)
         if not 1 <= self.batch_max_size <= 1000000 or self.batch_max_wait < 0:
             raise ValueError("batch_max_size must be 1..1000000 and batch_max_wait non-negative")
