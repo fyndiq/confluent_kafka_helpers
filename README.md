@@ -109,10 +109,9 @@ def handle_batch(batch):
 Usually you pass the handler to eventsourcing_helpers (`consume_batches(handle_batch)`), which
 iterates `consumer.batches()` and commits the offsets after the handler returns.
 
-- A batch is yielded when it has `batch_max_size` messages, or `batch_max_wait` seconds after
-  its first message, whichever comes first. An idle consumer yields nothing. With
-  `non_blocking`, it yields `[]` on every empty poll (every `poll_timeout`) while no batch is
-  started, like per-message mode yields `None`.
+- Each `consume()` read returns up to `batch_max_size` messages. `batch_max_wait` bounds
+  the wait from the start of the read, including when idle. With `non_blocking`, reads are
+  also capped at `poll_timeout` and empty reads yield `[]`. Blocking mode skips empty reads.
 - On shutdown (or EOF with `stop_on_eof`) the partial batch is yielded, then iteration stops.
 - If you iterate `batches()` yourself, commit after each batch: `commit()` without arguments
   commits everything polled so far, i.e. the whole batch.

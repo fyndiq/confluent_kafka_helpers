@@ -14,6 +14,12 @@ from tests import config
 def confluent_message():
     def _make_message(headers=None):
         class PollReturnMock:
+            def set_key(self, key):
+                self.key.return_value = key
+
+            def set_value(self, value):
+                self.value.return_value = value
+
             def __init__(self):
                 self.value = MagicMock(return_value=b"foobar")
                 self.error = MagicMock(return_value=None)
