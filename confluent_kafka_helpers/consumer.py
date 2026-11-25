@@ -1,14 +1,15 @@
 import contextlib
 import socket
 from functools import partial
-from typing import Callable, Iterable, Iterator
+from typing import Callable, Collection, Generator, Iterable, Iterator, Protocol
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
+from confluent_kafka import Message as KafkaMessage
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from confluent_kafka.avro.serializer import SerializerError
 from opentelemetry.context import Context
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import Span, SpanKind
 
 from confluent_kafka_helpers import is_shutdown_requested
 from confluent_kafka_helpers.callbacks import (
@@ -78,7 +79,14 @@ def is_kafka_transient_error(exc: KafkaException):
     return is_retryable_commit_error(error)
 
 
-def _decode_batch_record(record, decode, propagate_header_keys) -> Message:
+class _AvroDecoder(Protocol):
+    def __call__(self, data: bytes, /, *, is_key: bool) -> object:
+        """Decode wire bytes with the key or value reader schema."""
+
+
+def _decode_batch_record(
+    record: KafkaMessage, decode: _AvroDecoder, propagate_header_keys: Collection[str]
+) -> Message:
     """Build a decoded message while preserving the original Kafka wire record."""
     message = Message(record, propagate_header_keys)
     try:
@@ -264,7 +272,7 @@ class AvroConsumer:
         self._generator = self._batch_generator()
         return self._generator
 
-    def _batch_generator(self):
+    def _batch_generator(self) -> Generator[list[Message], None, None]:
         transport_errors = 0
         while not is_shutdown_requested():
             records = self.consumer.consume(
@@ -304,7 +312,7 @@ class AvroConsumer:
                 transport_errors = 0
 
     @contextlib.contextmanager
-    def _batch_span(self, messages: list[Message]):
+    def _batch_span(self, messages: list[Message]) -> Iterator[Span]:
         statsd.increment(  # type: ignore[attr-defined]
             f"{base_metric}.consumer.message.count.total", len(messages)
         )
