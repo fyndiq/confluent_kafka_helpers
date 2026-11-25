@@ -1,6 +1,12 @@
 import datetime
+from contextlib import contextmanager
+from typing import Iterator
+
+from opentelemetry.trace import Span, SpanKind
 
 from confluent_kafka_helpers.context import propagated_headers
+from confluent_kafka_helpers.tracing import attributes as attrs
+from confluent_kafka_helpers.tracing import tracer
 
 
 def kafka_timestamp_to_datetime(timestamp):
@@ -39,6 +45,40 @@ class Message:
         """Context manager: `producer.produce()` forwards this message's propagated headers
         inside the block."""
         return propagated_headers(self.propagated_headers)
+
+    @contextmanager
+    def process(self) -> Iterator[Span]:
+        """Context manager for handling one message from a batch.
+
+        Activates the incoming message trace as the parent of a processing span and forwards
+        this message's propagated headers inside the block.
+        """
+        message_class = self.value.get("class") if isinstance(self.value, dict) else None
+        resource_name = f"{self._meta.topic}:{message_class}" if message_class else self._meta.topic
+        context = tracer.extract_headers(headers=self._meta.headers)
+        with propagated_headers(self.propagated_headers):
+            with tracer.start_span(
+                name="kafka.process",
+                kind=SpanKind.CONSUMER,
+                resource_name=resource_name,
+                context=context,
+            ) as span:
+                if message_class:
+                    span.set_attribute("message.class", message_class)
+                span.set_attribute(
+                    attrs.MESSAGING_OPERATION_NAME,
+                    attrs.MESSAGING_OPERATION_NAME_VALUE_PROCESS,
+                )
+                span.set_attribute(
+                    attrs.MESSAGING_OPERATION_TYPE,
+                    attrs.MESSAGING_OPERATION_TYPE_VALUE_PROCESS,
+                )
+                span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, self._meta.topic)
+                span.set_attribute(attrs.MESSAGING_DESTINATION_PARTITION_ID, self._meta.partition)
+                span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_OFFSET, self._meta.offset)
+                if self._meta.key is not None:
+                    span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_KEY, self._meta.key)
+                yield span
 
     def __repr__(self):
         return f"Message(" f"value={self.value}, " f"_raw={self._raw}, " f"_meta={self._meta}" f")"
