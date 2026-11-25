@@ -21,14 +21,26 @@ shutdown_requested = threading.Event()
 
 
 def is_shutdown_requested() -> bool:
+    """Return True after SIGTERM/SIGINT or an explicit shutdown request.
+
+    Batch schedulers should poll this before starting queued work. Once it is
+    true, newly read Kafka messages should be left unprocessed so they can be
+    delivered again by Kafka.
+    """
     return shutdown_requested.is_set()
 
 
 def set_shutdown_requested():
+    """Request graceful shutdown for consumers in this process."""
     shutdown_requested.set()
 
 
 def clear_shutdown_requested():
+    """Clear the process-wide shutdown flag.
+
+    This is intended for tests or process reinitialisation. Production code
+    should normally let the flag stay set once shutdown has started.
+    """
     shutdown_requested.clear()
 
 

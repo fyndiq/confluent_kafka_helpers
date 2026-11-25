@@ -53,7 +53,9 @@ flag is set.
 
 ### Polling the flag from your own code
 
-Long-running handlers can check the flag and bail out early between subtasks:
+`is_shutdown_requested()` is the public API for application and worker layers to
+observe graceful shutdown. Long-running handlers can check the flag and bail out
+early between subtasks:
 
 ```python
 from confluent_kafka_helpers import is_shutdown_requested
@@ -64,6 +66,10 @@ for message in consumer:
         break
     do_step_two(message)
 ```
+
+Batch schedulers should also check `is_shutdown_requested()` before starting
+queued work. Once it returns `True`, do not start new message handlers; leave
+unfinished work for Kafka redelivery.
 
 ### Operational notes
 
@@ -113,7 +119,11 @@ iterates `consumer.batches()` and commits the offsets after the handler returns.
 - Each `consume()` read returns up to `batch_max_size` messages. `batch_max_wait` bounds
   the wait from the start of the read, including when idle. With `non_blocking`, reads are
   also capped at `poll_timeout` and empty reads yield `[]`. Blocking mode skips empty reads.
-- On shutdown (or EOF with `stop_on_eof`) the partial batch is yielded, then iteration stops.
+- `batches()` stops reading when shutdown has already been requested. If
+  shutdown is requested while a native `consume()` call is in progress, records
+  returned by that read are not yielded and remain unprocessed for Kafka
+  redelivery.
+- On EOF with `stop_on_eof`, the partial batch is yielded, then iteration stops.
 - If you iterate `batches()` yourself, commit after each batch: `commit()` without arguments
   commits everything polled so far, i.e. the whole batch.
 - Don't mix `batches()` and per-message iteration on the same consumer.
