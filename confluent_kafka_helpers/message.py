@@ -7,6 +7,7 @@ from opentelemetry.trace import Span, SpanKind
 from confluent_kafka_helpers.context import propagated_headers
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import tracer
+from confluent_kafka_helpers.tracing.span_attributes import set_message_span_attributes
 
 
 def kafka_timestamp_to_datetime(timestamp):
@@ -63,21 +64,18 @@ class Message:
                 resource_name=resource_name,
                 context=context,
             ) as span:
-                if message_class:
-                    span.set_attribute("message.class", message_class)
-                span.set_attribute(
-                    attrs.MESSAGING_OPERATION_NAME,
-                    attrs.MESSAGING_OPERATION_NAME_VALUE_PROCESS,
+                set_message_span_attributes(
+                    span,
+                    topic=self._meta.topic,
+                    partition=self._meta.partition,
+                    offset=self._meta.offset,
+                    key=self._meta.key,
+                    event_class=message_class,
+                    operation_name=attrs.MESSAGING_OPERATION_NAME_VALUE_PROCESS,
+                    operation_type=attrs.MESSAGING_OPERATION_TYPE_VALUE_PROCESS,
+                    propagated_headers=self.propagated_headers,
+                    include_falsey_key=True,
                 )
-                span.set_attribute(
-                    attrs.MESSAGING_OPERATION_TYPE,
-                    attrs.MESSAGING_OPERATION_TYPE_VALUE_PROCESS,
-                )
-                span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, self._meta.topic)
-                span.set_attribute(attrs.MESSAGING_DESTINATION_PARTITION_ID, self._meta.partition)
-                span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_OFFSET, self._meta.offset)
-                if self._meta.key is not None:
-                    span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_KEY, self._meta.key)
                 yield span
 
     def __repr__(self):
