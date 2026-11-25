@@ -78,6 +78,22 @@ def is_kafka_transient_error(exc: KafkaException):
     return is_retryable_commit_error(error)
 
 
+def _decode_batch_record(record, decode, propagate_header_keys) -> Message:
+    """Build a decoded message while preserving the original Kafka wire record."""
+    message = Message(record, propagate_header_keys)
+    try:
+        if message.value is not None:
+            message.value = decode(message.value, is_key=False)
+        if message._meta.key is not None:
+            message._meta.key = decode(message._meta.key, is_key=True)
+    except SerializerError as exc:
+        raise SerializerError(
+            f"Message deserialization failed for message at {record.topic()} "
+            f"[{record.partition()}] offset {record.offset()}: {exc}"
+        ) from exc
+    return message
+
+
 class AvroConsumer:
     DEFAULT_CONFIG = {
         "client.id": socket.gethostname(),
@@ -269,8 +285,13 @@ class AvroConsumer:
                             raise
                         continue
                 else:
-                    self._decode_batch_record(record)
-                    messages.append(Message(record, self.propagate_header_keys))
+                    messages.append(
+                        _decode_batch_record(
+                            record,
+                            self.consumer._serializer.decode_message,
+                            self.propagate_header_keys,
+                        )
+                    )
                 transport_errors = 0
             if messages:
                 with self._batch_span(messages):
@@ -281,20 +302,6 @@ class AvroConsumer:
                 break
             if not records:
                 transport_errors = 0
-
-    def _decode_batch_record(self, record):
-        # AvroConsumer only deserializes in poll(); consume() returns wire bytes.
-        decode = self.consumer._serializer.decode_message
-        try:
-            if (value := record.value()) is not None:
-                record.set_value(decode(value, is_key=False))
-            if (key := record.key()) is not None:
-                record.set_key(decode(key, is_key=True))
-        except SerializerError as exc:
-            raise SerializerError(
-                f"Message deserialization failed for message at {record.topic()} "
-                f"[{record.partition()}] offset {record.offset()}: {exc}"
-            ) from exc
 
     @contextlib.contextmanager
     def _batch_span(self, messages: list[Message]):

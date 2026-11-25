@@ -508,6 +508,7 @@ class TestAvroConsumerBatches:
         serde = MessageSerializer(registry)
         message.set_key(serde.encode_record_with_schema_id(1, "key", is_key=True))
         message.set_value(serde.encode_record_with_schema_id(1, "value"))
+        wire_key, wire_value = message.key(), message.value()
         tombstone = confluent_message()
         tombstone.set_key(None)
         tombstone.set_value(None)
@@ -517,6 +518,8 @@ class TestAvroConsumerBatches:
         (batch,) = list(consumer.batches())
 
         assert [(m._meta.key, m.value) for m in batch] == [("key", "value"), (None, None)]
+        assert batch[0]._raw is message
+        assert (message.key(), message.value()) == (wire_key, wire_value)
         consumer.consumer.consume.assert_called_once_with(num_messages=10, timeout=2)
 
     def test_non_blocking_yields_empty_batch_on_each_idle_poll(
