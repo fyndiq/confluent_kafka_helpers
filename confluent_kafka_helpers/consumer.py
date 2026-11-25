@@ -278,6 +278,13 @@ class AvroConsumer:
             records = self.consumer.consume(
                 num_messages=self.batch_max_size, timeout=self._batch_timeout
             )
+            if is_shutdown_requested():
+                if records:
+                    logger.info(
+                        "Shutdown requested after Kafka batch read; leaving records unprocessed",
+                        records=len(records),
+                    )
+                break
             stop = False
             messages = []
             for record in records:

@@ -457,7 +457,7 @@ def batch_consumer(avro_consumer):
                 if item is None:
                     break
                 result.append(item)
-            if not pending:
+            if not pending and not result:
                 confluent_kafka_helpers.set_shutdown_requested()
             return result
 
@@ -470,7 +470,9 @@ def batch_consumer(avro_consumer):
 
 
 class TestAvroConsumerBatches:
-    def test_yields_full_batches_then_partial_on_shutdown(self, batch_consumer, confluent_message):
+    def test_yields_full_batches_then_partial_before_shutdown(
+        self, batch_consumer, confluent_message
+    ):
         message = confluent_message()
         consumer = batch_consumer([message] * 250, config_override={"batch_max_size": 100})
 
@@ -491,6 +493,22 @@ class TestAvroConsumerBatches:
         confluent_kafka_helpers.set_shutdown_requested()
 
         assert list(consumer.batches()) == []
+        consumer.consumer.consume.assert_not_called()
+
+    def test_does_not_yield_partial_batch_when_shutdown_requested_during_read(
+        self, batch_consumer, confluent_message
+    ):
+        message = confluent_message()
+        consumer = batch_consumer([message, message], config_override={"batch_max_size": 10})
+
+        def consume_then_shutdown(num_messages, timeout):
+            confluent_kafka_helpers.set_shutdown_requested()
+            return [message, message]
+
+        consumer.consumer.consume = Mock(side_effect=consume_then_shutdown)
+
+        assert list(consumer.batches()) == []
+        consumer.consumer.consume.assert_called_once_with(num_messages=10, timeout=1.0)
 
     def test_context_manager_closes_batch_generator(self, batch_consumer, confluent_message):
         consumer = batch_consumer([confluent_message()], config_override={"batch_max_size": 1})
@@ -520,7 +538,7 @@ class TestAvroConsumerBatches:
         assert [(m._meta.key, m.value) for m in batch] == [("key", "value"), (None, None)]
         assert batch[0]._raw is message
         assert (message.key(), message.value()) == (wire_key, wire_value)
-        consumer.consumer.consume.assert_called_once_with(num_messages=10, timeout=2)
+        assert consumer.consumer.consume.call_args_list[0] == call(num_messages=10, timeout=2)
 
     def test_non_blocking_yields_empty_batch_on_each_idle_poll(
         self, batch_consumer, confluent_message
