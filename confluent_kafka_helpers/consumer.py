@@ -268,6 +268,8 @@ class AvroConsumer:
         Yield up to `batch_max_size` messages per native read. `batch_max_wait` bounds the read.
         Commit after each batch. Don't mix with per-message iteration on the same consumer.
         """
+        if self.is_auto_commit:
+            raise ValueError("batches() requires enable.auto.commit=False")
         # stored as self._generator so __exit__ closes it, like the per-message generator
         self._generator = self._batch_generator()
         return self._generator
