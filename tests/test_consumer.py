@@ -470,6 +470,21 @@ def batch_consumer(avro_consumer):
 
 
 class TestAvroConsumerBatches:
+    def test_rejects_auto_commit_before_reading(self, batch_consumer, confluent_message):
+        consumer = batch_consumer(
+            [confluent_message()], config_override={"enable.auto.commit": True}
+        )
+
+        with pytest.raises(ValueError, match=r"batches\(\) requires enable.auto.commit=False"):
+            consumer.batches()
+
+        consumer.consumer.consume.assert_not_called()
+
+    def test_auto_commit_still_allows_per_message_iteration(self, avro_consumer):
+        consumer = avro_consumer(config_override={"enable.auto.commit": True})
+
+        assert next(consumer).value == b"foobar"
+
     def test_yields_full_batches_then_partial_before_shutdown(
         self, batch_consumer, confluent_message
     ):

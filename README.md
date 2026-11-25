@@ -124,6 +124,8 @@ iterates `consumer.batches()` and commits the offsets after the handler returns.
   returned by that read are not yielded and remain unprocessed for Kafka
   redelivery.
 - On EOF with `stop_on_eof`, the partial batch is yielded, then iteration stops.
+- `batches()` requires `enable.auto.commit=False` (the default) and raises `ValueError`
+  otherwise, so closing the consumer cannot automatically commit discarded records.
 - If you iterate `batches()` yourself, commit after each batch: `commit()` without arguments
   commits everything polled so far, i.e. the whole batch.
 - Don't mix `batches()` and per-message iteration on the same consumer.
