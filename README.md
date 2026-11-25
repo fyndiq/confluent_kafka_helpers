@@ -127,17 +127,20 @@ The consumer config `headers.propagate` lists header keys (e.g. `correlation_id`
 `producer.produce()` forwards on the messages it produces. When consuming one message at a time,
 this is automatic while the message is handled.
 
-When consuming in batches, no headers are set automatically, because there is no single current
-message. Each message has `message.propagated_headers` (the default and configured keys only). Use
-`message.propagate()` around the produce calls that come from that message:
+When consuming in batches, wrap each message handler in `message.process()`. Do this inside the
+worker that handles the message. Then every produced message from that handler gets the right
+headers.
 
 ```python
+def handle_message(message):
+    with message.process():
+        producer.produce(build_event(message))
+
+
 def handle_batch(batch):
-    bulk_write([message.value for message in batch])  # persist first, commit the db
     for message in batch:
-        with message.propagate():
-            producer.produce(build_event(message))
-    producer.flush()  # recommended, see below
+        handle_message(message)
+    producer.flush()
 ```
 
 `produce()` only queues the message in the producer's buffer, and the batch's offsets are
@@ -148,23 +151,19 @@ crash after the commit (e.g. `SIGKILL` or OOM, which skip the flush on exit) los
 messages, and they are not produced again because the input messages count as consumed. The
 same applies when consuming one message at a time.
 
-Outside a `propagate()` block, nothing is forwarded. If you produce from data that you collected
-during the batch, keep a reference to the source message with that data. Explicit `headers=`
-passed to `produce()` override propagated headers with the same key.
+If you produce from data that you collected during the batch, keep a reference to the source
+message with that data. Explicit `headers=` passed to `produce()` override propagated headers with
+the same key.
 
 ### Tracing
 
 Each batch gets one `kafka.consume` span. It starts a new trace and links to every message's
-trace context. These links keep batch-level visibility without choosing one message as the parent
-for the whole batch.
+trace context. This shows the whole batch.
 
-When a batch handler processes messages one by one, use `message.process()` around each individual
-handler invocation. It starts a `kafka.process` span that continues that message's incoming trace,
-sets the message's propagated headers for any `producer.produce()` calls inside the block, and
-restores the previous headers and active span when the block exits. Keep using `message.propagate()`
-when you only need to forward headers around produce calls and do not want an extra processing span.
+Each `message.process()` block starts one `kafka.process` span for one message. Work inside the
+block, such as database writes or OpenSearch requests, belongs to that message's trace.
 
-For threaded handlers, enter the context inside the worker function, not around `executor.submit()`:
+For threaded handlers, put `message.process()` inside the worker function:
 
 ```python
 from concurrent.futures import ThreadPoolExecutor
@@ -172,7 +171,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 def handle_message(message):
     with message.process():
-        update_search_index(message.value)
+        save_to_database(message.value)
         producer.produce(build_projection_event(message.value))
 
 
