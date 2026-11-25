@@ -25,6 +25,10 @@ from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.metrics.callbacks import on_commit_cb_metrics
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import tracer
+from confluent_kafka_helpers.tracing.span_attributes import (
+    set_batch_consume_span_attributes,
+    set_message_span_attributes,
+)
 from confluent_kafka_helpers.utils import (
     is_lost_assignment,
     is_retryable_commit_error,
@@ -224,39 +228,20 @@ class AvroConsumer:
                 with tracer.start_span(name="kafka.create_message"):
                     message = Message(message, self.propagate_header_keys)
 
-                if message_class:
-                    span.set_attribute("message.class", message_class)
-
-                span.set_attribute(
-                    attrs.MESSAGING_OPERATION_NAME,
-                    attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME,
+                set_message_span_attributes(
+                    span,
+                    topic=message._meta.topic,
+                    partition=message._meta.partition,
+                    offset=message._meta.offset,
+                    key=message._meta.key,
+                    event_class=message_class,
+                    operation_name=attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME,
+                    operation_type=attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE,
+                    client_id=self.client_id,
+                    consumer_group=self.group_id,
+                    propagated_headers=propagated_headers,
+                    bootstrap_servers=self.bootstrap_servers,
                 )
-                span.set_attribute(
-                    attrs.MESSAGING_OPERATION_TYPE,
-                    attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE,
-                )
-                span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
-                span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, message._meta.topic)
-                span.set_attribute(attrs.MESSAGING_CONSUMER_GROUP_NAME, self.group_id)
-                span.set_attribute(
-                    attrs.MESSAGING_DESTINATION_PARTITION_ID, message._meta.partition
-                )
-                span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_OFFSET, message._meta.offset)
-
-                if message._meta.key:
-                    span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_KEY, message._meta.key)
-
-                for header_key, header_value in propagated_headers.items():
-                    span.set_attribute(
-                        f"{attrs.PROPAGATED_HEADER_PREFIX}{header_key}", header_value
-                    )
-                if correlation_id := propagated_headers.get(attrs.CORRELATION_ID_HEADER):
-                    span.set_attribute(attrs.MESSAGING_MESSAGE_CONVERSATION_ID, correlation_id)
-
-                server_address, *server_port = self.bootstrap_servers.split(":")
-                span.set_attribute(attrs.SERVER_ADDRESS, server_address)
-                if server_port:
-                    span.set_attribute(attrs.SERVER_PORT, server_port[0])
 
                 yield message
 
@@ -342,22 +327,14 @@ class AvroConsumer:
             context=Context(),
             links=links,
         ) as span:
-            span.set_attribute(attrs.MESSAGING_BATCH_MESSAGE_COUNT, len(messages))
-            span.set_attribute(
-                attrs.MESSAGING_OPERATION_NAME, attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME
+            set_batch_consume_span_attributes(
+                span,
+                message_count=len(messages),
+                topics=topics,
+                client_id=self.client_id,
+                consumer_group=self.group_id,
+                bootstrap_servers=self.bootstrap_servers,
             )
-            span.set_attribute(
-                attrs.MESSAGING_OPERATION_TYPE, attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE
-            )
-            span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
-            span.set_attribute(attrs.MESSAGING_CONSUMER_GROUP_NAME, self.group_id)
-            if len(topics) == 1:
-                span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, topics[0])
-
-            server_address, *server_port = self.bootstrap_servers.split(":")
-            span.set_attribute(attrs.SERVER_ADDRESS, server_address)
-            if server_port:
-                span.set_attribute(attrs.SERVER_PORT, server_port[0])
 
             yield span
 
