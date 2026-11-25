@@ -265,15 +265,11 @@ class AvroConsumer:
 
     def batches(self) -> Iterator[list[Message]]:
         """
-        Yield up to `batch_max_size` messages per read.
+        Yield list-shaped batches from single-message polling or native batch reads.
 
-        When `batch_max_size` is 1, reuse the single-message polling path and keep the
-        public batch contract list-shaped by yielding singleton lists. In non-blocking
-        mode, idle polls yield empty lists.
-
-        When `batch_max_size` is greater than 1, `batch_max_wait` bounds the native batch
-        read. Commit after each batch. Don't mix with per-message iteration on the same
-        consumer.
+        At `batch_max_size` 1, yield singleton lists from the single-message path, or
+        empty lists for non-blocking idle polls. Above 1, `batch_max_wait` bounds the
+        native batch read. Commit after each batch. Don't mix with per-message iteration.
         """
         # stored as self._generator so __exit__ closes it, like the per-message generator
         if self.batch_max_size == 1:
@@ -283,22 +279,14 @@ class AvroConsumer:
         return self._generator
 
     def _single_message_batch_generator(self) -> Generator[list[Message], None, None]:
-        messages = self._message_generator()
         try:
-            while True:
-                try:
-                    message = next(messages)
-                except EndOfPartition:
-                    return
-                except StopIteration:
-                    return
-
+            for message in self._message_generator():
                 if message is None:
                     yield []
                 else:
                     yield [message]
-        finally:
-            messages.close()
+        except EndOfPartition:
+            return
 
     def _batch_generator(self) -> Generator[list[Message], None, None]:
         transport_errors = 0
