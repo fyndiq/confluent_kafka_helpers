@@ -1,8 +1,8 @@
 # Migrating to Kafka batch processing
 
 Install `confluent-kafka-helpers==1.8.0rc1` to try the batch API with the
-published prerelease. Use your existing `AvroConsumer` for single-message
-handlers that run outside a batch. Create a separate `AvroBatchConsumer` for
+published prerelease. Choose one mode per processing loop. Use
+`AvroConsumer` for single-message iteration or `AvroBatchConsumer` for
 batch iteration.
 
 ## Consume, publish, and commit
@@ -79,8 +79,8 @@ business headers.
 ## Ordering and replay
 
 Kafka preserves order within each partition. The consumer yields records in
-fetch order, and `produce_many` queues records in the supplied order. Plan for
-records from different partitions to interleave.
+fetch order, and `produce_many` queues records in the supplied order. Records
+from different partitions or topics can interleave without a global order.
 
 Processing is at least once. A failed commit or a crash after database or
 output work can replay input. Applications must make state changes and output
