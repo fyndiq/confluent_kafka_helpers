@@ -1,6 +1,6 @@
-import math
 import socket
 from functools import partial
+from itertools import islice
 from typing import Callable, Iterable
 
 import structlog
@@ -22,15 +22,17 @@ from confluent_kafka_helpers.context import (
     set_propagated_headers,
 )
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
-from confluent_kafka_helpers.message import Message, decode_kafka_headers
+from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.metrics.callbacks import on_commit_cb_metrics
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import tracer
+from confluent_kafka_helpers.tracing.opentelemetry import span_link_limit
 from confluent_kafka_helpers.utils import (
     is_lost_assignment,
     is_retryable_commit_error,
     retry_exception,
+    validate_timeout,
 )
 
 logger = structlog.get_logger(__name__)
@@ -60,9 +62,13 @@ def get_message(consumer, error_handler, timeout=0.1, stop_on_eof=False):
     return message
 
 
+def _is_partition_eof(code: int) -> bool:
+    return code == KafkaError._PARTITION_EOF
+
+
 def default_error_handler(kafka_error):
     code = kafka_error.code()
-    if code == KafkaError._PARTITION_EOF:
+    if _is_partition_eof(code):
         raise EndOfPartition
     elif code == KafkaError._TRANSPORT:
         statsd.increment(f"{base_metric}.consumer.message.count.error")
@@ -72,13 +78,27 @@ def default_error_handler(kafka_error):
         raise KafkaException(kafka_error)
 
 
+def _kafka_error(exc: KafkaException) -> KafkaError | None:
+    return exc.args[0] if exc.args and isinstance(exc.args[0], KafkaError) else None
+
+
 def is_kafka_transient_error(exc: KafkaException):
-    if not exc.args:
-        return False
-    error = exc.args[0]
-    if not isinstance(error, KafkaError):
-        return False
-    return is_retryable_commit_error(error)
+    error = _kafka_error(exc)
+    return error is not None and is_retryable_commit_error(error)
+
+
+def _decode_avro_message(serializer, message):
+    try:
+        if (value := message.value()) is not None:
+            message.set_value(serializer.decode_message(value))
+        if (key := message.key()) is not None:
+            message.set_key(serializer.decode_message(key, is_key=True))
+    except SerializerError as error:
+        raise SerializerError(
+            f"Avro decoding failed at {message.topic()} [{message.partition()}] "
+            f"offset {message.offset()}"
+        ) from error
+    return message
 
 
 class _AvroConsumer:
@@ -161,6 +181,14 @@ class _AvroConsumer:
     def is_auto_commit(self):
         return self.config.get("enable.auto.commit", True)
 
+    def _commit(self, *args, **kwargs):
+        try:
+            return self.consumer.commit(*args, **kwargs)
+        except KafkaException as exc:
+            if (error := _kafka_error(exc)) is not None:
+                on_commit_cb_metrics(error, None)
+            raise
+
 
 class AvroConsumer(_AvroConsumer):
     def __init__(
@@ -184,26 +212,25 @@ class AvroConsumer(_AvroConsumer):
 
     def _message_generator(self):
         while not is_shutdown_requested():
-            message = self._get_message()
-            if message is None:
+            raw = self._get_message()
+            if raw is None:
                 if self.non_blocking:
                     yield None
                 continue
 
             statsd.increment(f"{base_metric}.consumer.message.count.total")
 
-            value, resource_name = message.value(), message.topic()
+            message = Message(raw, self.propagate_header_keys)
+            value, resource_name = message.value, message._meta.topic
             message_class = value.get("class") if isinstance(value, dict) else None
-            resource_name = f"{message.topic()}:{message_class}" if message_class else resource_name
+            if message_class:
+                resource_name = f"{resource_name}:{message_class}"
 
-            headers = decode_kafka_headers(message.headers())
-            propagated_headers = {
-                k: v for k, v in headers.items() if k in self.propagate_header_keys
-            }
+            propagated_headers = message.propagated_headers
             logger.debug("Setting propagated headers", headers=propagated_headers)
             set_propagated_headers(propagated_headers)
 
-            context = tracer.extract_headers(headers=headers)
+            context = message.trace_context
             with tracer.start_span(
                 name="kafka.consume",
                 kind=SpanKind.CONSUMER,
@@ -211,8 +238,6 @@ class AvroConsumer(_AvroConsumer):
                 context=context,
                 links=tracer.extract_links(context=context),
             ) as span:
-                message = Message(message, self.propagate_header_keys)
-
                 if message_class:
                     span.set_attribute("message.class", message_class)
 
@@ -256,14 +281,11 @@ class AvroConsumer(_AvroConsumer):
     @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error, delay=0.1)
     def commit(self, *args, **kwargs):
         try:
-            self.consumer.commit(*args, **kwargs)
+            self._commit(*args, **kwargs)
         except KafkaException as exc:
-            if not exc.args or not isinstance(exc.args[0], KafkaError):
-                raise
-            error = exc.args[0]
-            on_commit_cb_metrics(error, None)
+            error = _kafka_error(exc)
             # Replaying these offsets after ownership changes could commit stale work.
-            if is_lost_assignment(error):
+            if error is not None and is_lost_assignment(error):
                 logger.warning(
                     "Kafka assignment lost; offsets were not committed", error=str(error)
                 )
@@ -274,10 +296,7 @@ class AvroConsumer(_AvroConsumer):
 def validate_batch_options(batch_size, timeout):
     if type(batch_size) is not int or not 1 <= batch_size <= 1_000_000:
         raise ValueError("batch_size must be an integer from 1 to 1,000,000")
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
-        raise ValueError("timeout must be finite and nonnegative")
-    if not math.isfinite(timeout) or timeout < 0:
-        raise ValueError("timeout must be finite and nonnegative")
+    validate_timeout(timeout)
 
 
 class AvroBatchConsumer(_AvroConsumer):
@@ -308,6 +327,7 @@ class AvroBatchConsumer(_AvroConsumer):
         self.timeout = timeout
         self.stop_on_eof = config.pop("stop_on_eof", False)
         self._error_handler = error_handler
+        self._span_link_limit = min(batch_size, span_link_limit())
         self._eof_partitions: set[tuple[str, int]] = set()
         if self.stop_on_eof:
             config["enable.partition.eof"] = True
@@ -333,44 +353,37 @@ class AvroBatchConsumer(_AvroConsumer):
             for raw in self.consumer.consume(num_messages=self.batch_size, timeout=self.timeout):
                 partition = (raw.topic(), raw.partition())
                 if error := raw.error():
-                    if error.code() == KafkaError._PARTITION_EOF:
-                        self._eof_partitions.add(partition)
-                        continue
-                    self._error_handler(error)
+                    if _is_partition_eof(error.code()):
+                        if self.stop_on_eof:
+                            self._eof_partitions.add(partition)
+                    else:
+                        self._error_handler(error)
                     continue
-                self._eof_partitions.discard(partition)
-                try:
-                    if raw.value() is not None:
-                        raw.set_value(self.consumer._serializer.decode_message(raw.value()))
-                    if raw.key() is not None:
-                        raw.set_key(
-                            self.consumer._serializer.decode_message(raw.key(), is_key=True)
-                        )
-                except SerializerError as error:
-                    raise SerializerError(
-                        f"Avro decoding failed at {raw.topic()} [{raw.partition()}] "
-                        f"offset {raw.offset()}"
-                    ) from error
+                if self._eof_partitions:
+                    self._eof_partitions.discard(partition)
+                _decode_avro_message(self.consumer._serializer, raw)
                 messages.append(Message(raw, self.propagate_header_keys))
 
             if messages:
                 statsd.increment(f"{base_metric}.consumer.message.count.total", len(messages))
-                links = [
+                links = (
                     link
                     for message in messages
-                    for link in tracer.extract_links(tracer.extract_headers(message._meta.headers))
-                ]
+                    for link in tracer.extract_links(message.trace_context)
+                )
                 with (
                     propagated_headers_context({}),
                     tracer.start_span(
-                        name="kafka.consume_batch", kind=SpanKind.CONSUMER, links=links
+                        name="kafka.consume_batch",
+                        kind=SpanKind.CONSUMER,
+                        links=list(islice(links, self._span_link_limit)),
                     ) as span,
                 ):
                     span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
                     span.set_attribute(attrs.MESSAGING_CONSUMER_GROUP_NAME, self.group_id)
                     yield messages
 
-            if self.stop_on_eof:
+            if self._eof_partitions:
                 assigned = {(p.topic, p.partition) for p in self.consumer.assignment()}
                 if assigned and assigned <= self._eof_partitions:
                     return
@@ -385,12 +398,7 @@ class AvroBatchConsumer(_AvroConsumer):
             return
 
         partitions = [TopicPartition(*partition, offset) for partition, offset in offsets.items()]
-        try:
-            result = self.consumer.commit(offsets=partitions, asynchronous=False)
-        except KafkaException as error:
-            if error.args and isinstance(error.args[0], KafkaError):
-                on_commit_cb_metrics(error.args[0], None)
-            raise
+        result = self._commit(offsets=partitions, asynchronous=False)
         for committed_partition in result:
             if committed_partition.error is not None:
                 on_commit_cb_metrics(committed_partition.error, result)
@@ -420,11 +428,5 @@ class AvroLazyConsumer(ConfluentAvroConsumer):
 
     def decode_message(self, message):
         if not message.error():
-            if message.value() is not None:
-                decoded_value = self._serializer.decode_message(message.value())
-                message.set_value(decoded_value)
-
-            if message.key() is not None:
-                decoded_key = self._serializer.decode_message(message.key())
-                message.set_key(decoded_key)
+            return _decode_avro_message(self._serializer, message)
         return message

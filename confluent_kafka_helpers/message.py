@@ -1,5 +1,7 @@
 import datetime
 
+from confluent_kafka_helpers.tracing import tracer
+
 
 def kafka_timestamp_to_datetime(timestamp):
     return datetime.datetime.utcfromtimestamp(timestamp / 1000.0) if timestamp is not None else None
@@ -23,12 +25,13 @@ def decode_kafka_headers(headers):
 
 
 class Message:
-    __slots__ = ["value", "_raw", "_meta", "propagated_headers"]
+    __slots__ = ["value", "_raw", "_meta", "propagated_headers", "trace_context"]
 
     def __init__(self, kafka_message, propagate_header_keys=()):
         self.value = kafka_message.value()
         self._raw = kafka_message
         self._meta = MessageMetadata(kafka_message)
+        self.trace_context = tracer.extract_headers(self._meta.headers)
         self.propagated_headers = {
             key: value for key, value in self._meta.headers.items() if key in propagate_header_keys
         }

@@ -31,13 +31,16 @@ class TestAvroConsumer:
 
     @patch("confluent_kafka_helpers.consumer.tracer")
     def test_consume_messages_adds_tracing(self, tracer, avro_consumer):
-        with pytest.raises(RuntimeError):
+        with (
+            patch("confluent_kafka_helpers.message.tracer", tracer),
+            pytest.raises(RuntimeError),
+        ):
             with avro_consumer() as consumer:
                 for message in consumer:
                     pass
 
         expected_calls = [
-            call.extract_headers(headers={"foo": "bar"}),
+            call.extract_headers({"foo": "bar"}),
             call.extract_links(context=ANY),
             call.start_span(
                 name="kafka.consume",

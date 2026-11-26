@@ -248,8 +248,8 @@ def test_delivery_scope_checks_callbacks_before_normal_exit(avro_producer, confl
         patch.object(avro_producer, "_delivery_callback") as default_callback,
         patch.object(avro_producer, "flush") as flush,
     ):
-        with avro_producer.delivery_scope() as delivery:
-            delivery.produce_many([{"value": "output", "callback": callback}])
+        with avro_producer.delivery_scope():
+            avro_producer.produce("output", callback=callback)
             delivered = confluent_avro_producer.call_args.kwargs["on_delivery"]
             flush.side_effect = lambda timeout: delivered(None, "sent") or 0
     flush.assert_called_once()
@@ -272,3 +272,50 @@ def test_delivery_scope_records_failure_reported_during_queue_poll(
             poll.side_effect = lambda timeout: delivered("delivery failed", "first")
             delivery.produce_many([{"value": "second"}])
     assert confluent_avro_producer.call_count == 2
+
+
+def test_delivery_scope_rejects_same_producer_nesting_and_restores_after_error(
+    avro_producer, confluent_avro_producer
+):
+    with pytest.raises(RuntimeError, match="handler failed"):
+        with avro_producer.delivery_scope():
+            with pytest.raises(RuntimeError, match="Cannot nest"):
+                with avro_producer.delivery_scope():
+                    pytest.fail("Nested scope entered")
+            avro_producer.produce("tracked")
+            assert "on_delivery" in confluent_avro_producer.call_args.kwargs
+            raise RuntimeError("handler failed")
+
+    avro_producer.produce("untracked")
+    assert "on_delivery" not in confluent_avro_producer.call_args.kwargs
+
+
+def test_delivery_scope_keeps_producers_independent(
+    avro_producer, avro_schema_registry, confluent_avro_producer
+):
+    with patch.object(producer.AvroProducer, "_close"):
+        other = producer.AvroProducer(
+            config.Config.KAFKA_PRODUCER_CONFIG, schema_registry=avro_schema_registry
+        )
+    with patch.object(avro_producer, "flush") as outer_flush:
+        with avro_producer.delivery_scope():
+            other.produce("independent")
+            assert "on_delivery" not in confluent_avro_producer.call_args.kwargs
+            with patch.object(other, "flush") as inner_flush:
+                with other.delivery_scope():
+                    other.produce("tracked separately")
+                    delivered = confluent_avro_producer.call_args.kwargs["on_delivery"]
+                    inner_flush.side_effect = lambda timeout: delivered(None, "sent") or 0
+            inner_flush.assert_called_once()
+        outer_flush.assert_not_called()
+
+
+def test_empty_delivery_scope_neither_starts_deadline_nor_flushes(avro_producer):
+    with (
+        patch.object(producer.time, "monotonic") as clock,
+        patch.object(avro_producer, "flush") as flush,
+        avro_producer.delivery_scope(),
+    ):
+        avro_producer.produce_many([])
+    clock.assert_not_called()
+    flush.assert_not_called()

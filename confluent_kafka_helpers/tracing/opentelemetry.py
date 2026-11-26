@@ -1,4 +1,5 @@
 import contextlib
+from os import getenv
 from typing import Callable, Iterator
 
 from opentelemetry import trace
@@ -11,6 +12,20 @@ from . import attributes as attrs
 from . import datadog
 
 DEFAULT_EXT_SERVICE_NAME = "kafka"
+DEFAULT_SPAN_LINK_COUNT_LIMIT = 128
+
+
+def span_link_limit() -> int:
+    """Read the OpenTelemetry environment limit before building batch links."""
+    raw = getenv("OTEL_SPAN_LINK_COUNT_LIMIT")
+    if raw is not None:
+        try:
+            limit = int(raw)
+            if limit >= 0:
+                return limit
+        except ValueError:
+            pass
+    return DEFAULT_SPAN_LINK_COUNT_LIMIT
 
 
 class OpenTelemetryBackend:

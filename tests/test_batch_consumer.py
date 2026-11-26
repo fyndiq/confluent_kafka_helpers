@@ -1,3 +1,4 @@
+from types import SimpleNamespace
 from unittest.mock import Mock, call, patch
 
 import pytest
@@ -6,12 +7,13 @@ from confluent_kafka.avro.serializer import SerializerError
 from opentelemetry.trace import get_current_span
 
 from confluent_kafka_helpers import set_shutdown_requested
-from confluent_kafka_helpers.consumer import AvroBatchConsumer
+from confluent_kafka_helpers.consumer import AvroBatchConsumer, AvroLazyConsumer
 from confluent_kafka_helpers.context import (
     get_propagated_headers,
     message_context,
     propagated_headers_context,
 )
+from confluent_kafka_helpers.tracing import tracer
 
 from tests.config import Config
 
@@ -73,6 +75,15 @@ def test_batch_error_handler_can_skip_error_record(consumer_factory):
         error_handler.assert_called_once_with(error)
 
 
+def test_lazy_consumer_decodes_key_with_key_schema_and_leaves_tombstone():
+    serializer = Mock()
+    raw = record(1, value=None)
+    consumer = SimpleNamespace(_serializer=serializer)
+    assert AvroLazyConsumer.decode_message(consumer, raw) is raw
+    serializer.decode_message.assert_called_once_with(b"key", is_key=True)
+    raw.set_value.assert_not_called()
+
+
 def test_fetches_batches_in_order_without_losing_tombstones(consumer_factory):
     with consumer_factory(batch_size=2, timeout=0) as consumer:
         consumer.consumer.consume.side_effect = [
@@ -115,6 +126,15 @@ def test_yields_remaining_data_before_stopping_at_eof():
         with AvroBatchConsumer(config, batch_size=1) as consumer:
             assert [[message._meta.offset for message in batch] for batch in consumer] == [[3]]
             assert consumer.config["enable.partition.eof"] is True
+
+
+def test_no_assignment_lookup_before_eof(monkeypatch, consumer_factory):
+    monkeypatch.setitem(Config.KAFKA_CONSUMER_CONFIG, "stop_on_eof", True)
+    with consumer_factory() as consumer:
+        consumer.consumer.consume.side_effect = [[record(1)], [record(2)]]
+        next(consumer)
+        next(consumer)
+        consumer.consumer.assignment.assert_not_called()
 
 
 def test_eof_from_previous_assignment_does_not_stop_consumer():
@@ -211,3 +231,18 @@ def test_message_context_restores_headers_and_trace_on_exception(consumer_factor
             assert get_propagated_headers() == {}
             assert get_current_span() is batch_span
         assert get_propagated_headers() == {"outside": "batch"}
+
+
+def test_batch_span_link_limit_preserves_record_context(monkeypatch, consumer_factory):
+    monkeypatch.setenv("OTEL_SPAN_LINK_COUNT_LIMIT", "1")
+    records = [record(i, headers=[("traceparent", f"00-{i:032x}-{'a'*16}-01")]) for i in (1, 2)]
+    with (
+        consumer_factory() as consumer,
+        patch.object(tracer, "start_span", wraps=tracer.start_span) as start_span,
+    ):
+        consumer.consumer.consume.return_value = records
+        _, second = next(consumer)
+        (link,) = start_span.call_args.kwargs["links"]
+        assert link.context.trace_id == 1
+        with message_context(second):
+            assert get_current_span().get_span_context().trace_id == 2

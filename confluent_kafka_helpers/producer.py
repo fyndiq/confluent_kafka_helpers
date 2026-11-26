@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import atexit
-import math
 import socket
 import time
 from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import partial
-from typing import Any, Callable, Iterable, Iterator
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Iterator
 
 import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
@@ -18,10 +20,13 @@ from confluent_kafka_helpers.callbacks import (
 )
 from confluent_kafka_helpers.context import get_propagated_headers
 from confluent_kafka_helpers.exceptions import KafkaDeliveryError
-from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import datadog, tracer
+from confluent_kafka_helpers.utils import validate_timeout
+
+if TYPE_CHECKING:
+    from confluent_kafka_helpers.message import Message
 
 logger = structlog.get_logger(__name__)
 
@@ -35,8 +40,8 @@ class TopicNotRegistered(Exception):
     pass
 
 
-class DeliveryScope:
-    def __init__(self, producer: "AvroProducer", timeout: float):
+class _DeliveryScope:
+    def __init__(self, producer: AvroProducer, timeout: float):
         self._producer = producer
         self._timeout = timeout
         self._deadline: float | None = None
@@ -45,28 +50,26 @@ class DeliveryScope:
 
     def produce_many(self, records: Iterable[dict[str, Any]]) -> None:
         try:
-            self._producer._enqueue(
-                self._track(records), self._deadline_for_delivery(), self._check_delivery
-            )
+            self._producer._enqueue(self._track(records), self._remaining)
         except Exception as error:
             if self._failure is None:
                 self._failure = error
             raise
 
-    def _deadline_for_delivery(self) -> float:
-        if self._deadline is None:
-            self._deadline = time.monotonic() + self._timeout
-        return self._deadline
-
-    def _check_delivery(self) -> None:
+    def _remaining(self) -> float:
         if self._failure is not None:
             raise self._failure
-        if time.monotonic() >= self._deadline_for_delivery():
+        now = time.monotonic()
+        if self._deadline is None:
+            self._deadline = now + self._timeout
+        remaining = self._deadline - now
+        if remaining <= 0:
             raise TimeoutError("Kafka batch delivery timed out")
+        return remaining
 
     def _track(self, records: Iterable[dict[str, Any]]) -> Iterator[dict[str, Any]]:
         for record in records:
-            self._check_delivery()
+            self._remaining()
             args = dict(record)
             callback = args.pop("callback", None)
             callback = args.pop("on_delivery", None) or callback
@@ -93,10 +96,7 @@ class DeliveryScope:
             raise self._failure
         if not self._pending:
             return
-        remaining = self._deadline_for_delivery() - time.monotonic()
-        if remaining <= 0:
-            raise TimeoutError("Kafka batch delivery timed out")
-        outstanding = self._producer.flush(remaining)
+        outstanding = self._producer.flush(self._remaining())
         if self._failure is not None:
             raise self._failure
         if outstanding or self._pending:
@@ -119,12 +119,15 @@ class AvroProducer(ConfluentAvroProducer):
         schema_registry=AvroSchemaRegistry,
         get_callback=get_callback,
         **kwargs,
-    ):
+    ) -> None:
         config = {**self.DEFAULT_CONFIG, **config}
         config["on_delivery"] = get_callback(
             config.pop("on_delivery", None), default_on_delivery_cb
         )
         self._delivery_callback = config["on_delivery"]
+        self._delivery: ContextVar[_DeliveryScope | None] = ContextVar(
+            "kafka_delivery_scope", default=None
+        )
         config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
         config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
 
@@ -182,12 +185,22 @@ class AvroProducer(ConfluentAvroProducer):
     def produce(
         self, value, key=None, topic=None, headers=None, *, source: Message | None = None, **kwargs
     ):
+        if delivery := self._delivery.get():
+            delivery.produce_many(
+                [dict(value=value, key=key, topic=topic, headers=headers, source=source, **kwargs)]
+            )
+        else:
+            self._produce(value, key, topic, headers, source=source, **kwargs)
+
+    def _produce(
+        self, value, key=None, topic=None, headers=None, *, source: Message | None = None, **kwargs
+    ):
         span_options: dict[str, Any] = {}
         if source is None:
             propagated_headers = get_propagated_headers()
         else:
             propagated_headers = source.propagated_headers
-            span_options["context"] = tracer.extract_headers(headers=source._meta.headers)
+            span_options["context"] = source.trace_context
         logger.debug("Retrieved propagated headers", headers=propagated_headers)
         headers = {**propagated_headers, **(headers or {})}
 
@@ -256,38 +269,51 @@ class AvroProducer(ConfluentAvroProducer):
             )
 
     @contextmanager
-    def delivery_scope(self, timeout: float = 30.0) -> Iterator[DeliveryScope]:
-        """Confirm delivery of records enqueued through the scope before normal exit."""
-        if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("delivery_timeout must be finite and positive")
-        delivery = DeliveryScope(self, timeout)
-        yield delivery
-        delivery._confirm()
+    def delivery_scope(self, timeout: float = 30.0) -> Iterator[AvroProducer]:
+        """Confirm this producer's output on normal exit using one shared deadline."""
+        validate_timeout(timeout, allow_zero=False)
+        if self._delivery.get() is not None:
+            raise RuntimeError("Cannot nest delivery scopes on the same producer")
+        delivery = _DeliveryScope(self, timeout)
+        token = self._delivery.set(delivery)
+        try:
+            yield self
+            delivery._confirm()
+        finally:
+            self._delivery.reset(token)
 
     def produce_many(self, records: Iterable[dict[str, Any]], *, timeout: float = 30.0) -> None:
         """Enqueue records in order, allowing callbacks to free a full producer queue."""
-        if not math.isfinite(timeout) or timeout < 0:
-            raise ValueError("timeout must be finite and nonnegative")
-        self._enqueue(records, time.monotonic() + timeout)
+        validate_timeout(timeout)
+        if delivery := self._delivery.get():
+            delivery.produce_many(records)
+        else:
+            deadline = time.monotonic() + timeout
+            self._enqueue(records, lambda: deadline - time.monotonic())
 
     def _enqueue(
         self,
         records: Iterable[dict[str, Any]],
-        deadline: float,
-        check_delivery: Callable[[], None] | None = None,
+        remaining: Callable[[], float],
     ) -> None:
         for record in records:
             while True:
                 try:
-                    self.produce(**record)
+                    self._produce(**record)
                     break
                 except BufferError as error:
-                    remaining = deadline - time.monotonic()
-                    if remaining <= 0:
+                    wait = remaining()
+                    if wait <= 0:
                         raise TimeoutError("Kafka producer queue remained full") from error
-                self.poll(min(remaining, 0.1))
-                if check_delivery is not None:
-                    check_delivery()
+                self.poll(min(wait, 0.1))
+                remaining()
+
+    def finish_producing(self, *, flush: bool) -> None:
+        """Serve callbacks and optionally flush outside a managed delivery scope."""
+        if self._delivery.get() is None:
+            self.poll(0)
+            if flush:
+                self.flush()
 
     def flush(self, *args, **kwargs):
         with tracer.start_span(name="kafka.flush", kind=SpanKind.PRODUCER):
