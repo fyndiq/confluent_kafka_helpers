@@ -12,7 +12,11 @@ from confluent_kafka_helpers.callbacks import (
     get_callback,
 )
 from confluent_kafka_helpers.context import get_propagated_headers
-from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
+from confluent_kafka_helpers.schema_registry import (
+    AvroSchemaRegistry,
+    RetryingSchemaRegistryClient,
+    SchemaNotFound,
+)
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import datadog, tracer
 
@@ -43,6 +47,7 @@ class AvroProducer(ConfluentAvroProducer):
         value_serializer=None,
         schema_registry=AvroSchemaRegistry,
         get_callback=get_callback,
+        schema_registry_client=RetryingSchemaRegistryClient,
         **kwargs,
     ):
         config = {**self.DEFAULT_CONFIG, **config}
@@ -66,10 +71,57 @@ class AvroProducer(ConfluentAvroProducer):
         default_topic_schema = next(iter(self.topic_schemas.values()))
         self.default_topic, *_ = default_topic_schema
 
+        # Build the registry client ourselves (instead of letting Confluent's
+        # AvroProducer do it) so registration retries transient connection errors.
+        registry_client = schema_registry_client(self._get_schema_registry_config(config))
+        config = {k: v for k, v in config.items() if not k.startswith("schema.registry")}
+
         logger.info("Initializing producer", config=config)
         atexit.register(self._close)
 
-        super().__init__(config, logger=logger, **kwargs)
+        super().__init__(config, schema_registry=registry_client, logger=logger, **kwargs)
+        self._warm_schema_cache(registry_client)
+
+    @staticmethod
+    def _get_schema_registry_config(config):
+        """
+        Same mapping as Confluent's AvroProducer uses for its own client.
+        """
+        sr_config = {
+            key.replace("schema.registry.", ""): value
+            for key, value in config.items()
+            if key.startswith("schema.registry")
+        }
+        if sr_config.get("basic.auth.credentials.source") == "SASL_INHERIT":
+            sr_config["sasl.mechanism"] = config.get(
+                "sasl.mechanism", config.get("sasl.mechanisms", "")
+            )
+            sr_config["sasl.username"] = config.get("sasl.username", "")
+            sr_config["sasl.password"] = config.get("sasl.password", "")
+            sr_config["auto.register.schemas"] = config.get("auto.register.schemas", True)
+        return sr_config
+
+    def _warm_schema_cache(self, registry_client):
+        """
+        Register the configured topic schemas up front so the first produce
+        doesn't have to call the schema registry. Best effort: on failure
+        produce() registers lazily as before.
+        """
+        if registry_client.auto_register_schemas:
+            lookup = registry_client.register
+        else:
+            lookup = registry_client.check_registration
+        for topic, key_schema, value_schema in self.topic_schemas.values():
+            key_name, value_name = self._get_subject_names(topic)
+            for subject, schema in ((key_name, key_schema), (value_name, value_schema)):
+                if schema is None:
+                    continue
+                try:
+                    lookup(subject, schema)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to warm schema registry cache", subject=subject, error=repr(exc)
+                    )
 
     def _close(self):
         logger.info("Flushing producer")
