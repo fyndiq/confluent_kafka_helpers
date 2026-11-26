@@ -1,3 +1,4 @@
+import math
 import time
 from functools import wraps
 from typing import Callable
@@ -6,6 +7,18 @@ import structlog
 from confluent_kafka import KafkaError
 
 logger = structlog.get_logger(__name__)
+
+
+def validate_timeout(timeout: float, *, name: str = "timeout", allow_zero: bool = True) -> None:
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(timeout)
+        or timeout < 0
+        or (not allow_zero and timeout == 0)
+    ):
+        bound = "nonnegative" if allow_zero else "positive"
+        raise ValueError(f"{name} must be finite and {bound}")
 
 
 def is_retryable_commit_error(error: KafkaError) -> bool:

@@ -1,5 +1,4 @@
 import atexit
-import math
 import socket
 import threading
 import time
@@ -22,6 +21,7 @@ from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import datadog, tracer
+from confluent_kafka_helpers.utils import validate_timeout
 
 logger = structlog.get_logger(__name__)
 
@@ -289,8 +289,7 @@ class AvroProducer(ConfluentAvroProducer):
     @contextmanager
     def delivery_scope(self, timeout: float = 30.0) -> Iterator[DeliveryScope]:
         """Confirm all output from this producer before successful scope exit."""
-        if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError("delivery timeout must be finite and positive")
+        validate_timeout(timeout, name="delivery timeout", allow_zero=False)
         if self.in_delivery_scope:
             raise RuntimeError("Nested delivery scopes on one producer are not supported")
         delivery = DeliveryScope(self, timeout)
@@ -303,8 +302,7 @@ class AvroProducer(ConfluentAvroProducer):
 
     def produce_many(self, records: Iterable[dict[str, Any]], *, timeout: float = 30.0) -> None:
         """Queue records in order; use a delivery scope to confirm them before commit."""
-        if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout < 0:
-            raise ValueError("timeout must be finite and nonnegative")
+        validate_timeout(timeout)
         deadline = time.monotonic() + timeout
         for record in records:
             while True:
@@ -316,6 +314,13 @@ class AvroProducer(ConfluentAvroProducer):
                     if remaining <= 0:
                         raise TimeoutError("Kafka producer queue remained full") from error
                     self.poll(min(remaining, 0.1))
+
+    def finish_producing(self, *, flush: bool) -> None:
+        """Serve callbacks and optionally flush when no batch owns confirmation."""
+        if not self.in_delivery_scope:
+            self.poll(0)
+            if flush:
+                self.flush()
 
     def flush(self, *args, **kwargs):
         with tracer.start_span(name="kafka.flush", kind=SpanKind.PRODUCER):

@@ -345,6 +345,8 @@ def test_scope_tracks_joined_worker_output(avro_producer, confluent_avro_produce
         with avro_producer.delivery_scope():
             with ThreadPoolExecutor(max_workers=2) as workers:
                 list(workers.map(avro_producer.produce, ["one", "two"]))
+                workers.submit(avro_producer.finish_producing, flush=True).result()
+            flush.assert_not_called()
     assert confluent_avro_producer.call_count == 2
     flush.assert_called_once()
 

@@ -1,5 +1,4 @@
 import contextlib
-import math
 import socket
 from functools import partial
 from typing import Callable, Collection, Generator, Iterable, Iterator, Protocol
@@ -39,6 +38,7 @@ from confluent_kafka_helpers.utils import (
     is_lost_assignment,
     is_retryable_commit_error,
     retry_exception,
+    validate_timeout,
 )
 
 logger = structlog.get_logger(__name__)
@@ -283,10 +283,7 @@ class AvroConsumer(_AvroConsumer):
 def validate_batch_options(batch_size, timeout):
     if type(batch_size) is not int or not 1 <= batch_size <= 1_000_000:
         raise ValueError("batch_size must be an integer from 1 to 1,000,000")
-    if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
-        raise ValueError("timeout must be finite and nonnegative")
-    if not math.isfinite(timeout) or timeout < 0:
-        raise ValueError("timeout must be finite and nonnegative")
+    validate_timeout(timeout)
 
 
 class AvroBatchConsumer(_AvroConsumer):
