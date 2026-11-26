@@ -23,11 +23,20 @@ def confluent_avro_producer():
 
 
 @pytest.fixture
+def schema_registry_client():
+    return MagicMock()
+
+
+@pytest.fixture
 @patch("confluent_kafka_helpers.producer.AvroProducer._close", MagicMock())
-def avro_producer(confluent_avro_producer, avro_schema_registry):
+def avro_producer(confluent_avro_producer, avro_schema_registry, schema_registry_client):
     producer_config = config.Config.KAFKA_PRODUCER_CONFIG
     producer_config["client.id"] = "<client-id>"
-    return producer.AvroProducer(producer_config, schema_registry=avro_schema_registry)
+    return producer.AvroProducer(
+        producer_config,
+        schema_registry=avro_schema_registry,
+        schema_registry_client=schema_registry_client,
+    )
 
 
 def test_avro_producer_init(avro_producer, avro_schema_registry):
@@ -178,3 +187,66 @@ def test_producer_adds_propagated_headers_to_span(get_propagated_headers, tracer
     tracer.start_span().__enter__().set_attribute.assert_any_call(
         "messaging.message.conversation_id", "xyz-789"
     )
+
+
+@patch("confluent_kafka_helpers.producer.AvroProducer._close", MagicMock())
+@patch("confluent_kafka_helpers.producer.ConfluentAvroProducer.__init__", return_value=None)
+def test_avro_producer_passes_custom_schema_registry_client(
+    confluent_init, avro_schema_registry, schema_registry_client
+):
+    producer_config = {
+        **config.Config.KAFKA_PRODUCER_CONFIG,
+        "schema.registry.url": "https://user:pass@registry:443",
+        "schema.registry.ssl.ca.location": "/ca.pem",
+    }
+    producer.AvroProducer(
+        producer_config,
+        schema_registry=avro_schema_registry,
+        schema_registry_client=schema_registry_client,
+    )
+
+    schema_registry_client.assert_called_once_with(
+        {"url": "https://user:pass@registry:443", "ssl.ca.location": "/ca.pem"}
+    )
+    (passed_config,), kwargs = confluent_init.call_args
+    assert kwargs["schema_registry"] is schema_registry_client.return_value
+    # Confluent raises ValueError if both a client and schema.registry.* config are passed
+    assert not any(key.startswith("schema.registry") for key in passed_config)
+    assert passed_config["bootstrap.servers"] == "localhost:9092"
+
+
+def test_avro_producer_warms_schema_cache(avro_producer, schema_registry_client):
+    client = schema_registry_client.return_value
+    expected = []
+    for topic, key_schema, value_schema in avro_producer.topic_schemas.values():
+        expected += [call(f"{topic}-key", key_schema), call(f"{topic}-value", value_schema)]
+    client.register.assert_has_calls(expected, any_order=True)
+    assert client.register.call_count == len(expected)
+
+
+def test_avro_producer_warm_up_failure_does_not_break_init(
+    confluent_avro_producer, avro_schema_registry, schema_registry_client
+):
+    schema_registry_client.return_value.register.side_effect = ConnectionError("boom")
+    with patch("confluent_kafka_helpers.producer.AvroProducer._close", MagicMock()):
+        avro_producer = producer.AvroProducer(
+            config.Config.KAFKA_PRODUCER_CONFIG,
+            schema_registry=avro_schema_registry,
+            schema_registry_client=schema_registry_client,
+        )
+    assert avro_producer.default_topic == "c"
+
+
+def test_avro_producer_warm_up_uses_check_registration_without_auto_register(
+    confluent_avro_producer, avro_schema_registry, schema_registry_client
+):
+    client = schema_registry_client.return_value
+    client.auto_register_schemas = False
+    with patch("confluent_kafka_helpers.producer.AvroProducer._close", MagicMock()):
+        producer.AvroProducer(
+            config.Config.KAFKA_PRODUCER_CONFIG,
+            schema_registry=avro_schema_registry,
+            schema_registry_client=schema_registry_client,
+        )
+    client.register.assert_not_called()
+    assert client.check_registration.called

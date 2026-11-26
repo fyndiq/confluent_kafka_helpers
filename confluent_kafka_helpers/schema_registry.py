@@ -1,6 +1,9 @@
+import time
 from functools import lru_cache
 
+import requests  # type: ignore[import-untyped]
 import structlog
+import urllib3
 from confluent_kafka import avro
 from confluent_kafka.avro.cached_schema_registry_client import CachedSchemaRegistryClient
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
@@ -13,6 +16,55 @@ logger = structlog.get_logger(__name__)
 
 class SchemaNotFound(Exception):
     pass
+
+
+# Connection-level errors that are safe to retry for schema registration.
+# Registering an already registered schema is idempotent and returns the same id.
+TRANSIENT_ERRORS = (
+    urllib3.exceptions.ProtocolError,
+    urllib3.exceptions.NewConnectionError,
+    urllib3.exceptions.MaxRetryError,
+    requests.exceptions.ConnectionError,
+    ConnectionError,
+)
+
+
+class RetryingSchemaRegistryClient(CachedSchemaRegistryClient):
+    """
+    Schema registry client that retries registration on transient connection errors.
+
+    urllib3 does not retry read errors for POST requests, so a stale keep-alive
+    connection closed by the registry surfaces as a ProtocolError on the first
+    register call after a pod starts.
+    """
+
+    max_attempts = 3
+    backoff_seconds = 0.2
+
+    def _with_retry(self, operation, method, subject, avro_schema):
+        for attempt in range(1, self.max_attempts + 1):
+            try:
+                return method(subject, avro_schema)
+            except TRANSIENT_ERRORS as exc:
+                if attempt == self.max_attempts:
+                    raise
+                logger.warning(
+                    "Transient schema registry error, retrying",
+                    operation=operation,
+                    subject=subject,
+                    attempt=attempt,
+                    max_attempts=self.max_attempts,
+                    error=repr(exc),
+                )
+                time.sleep(self.backoff_seconds * attempt)
+
+    def register(self, subject, avro_schema):
+        return self._with_retry("register", super().register, subject, avro_schema)
+
+    def check_registration(self, subject, avro_schema):
+        return self._with_retry(
+            "check_registration", super().check_registration, subject, avro_schema
+        )
 
 
 class AvroSchemaRegistry:
