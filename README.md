@@ -100,35 +100,43 @@ AvroConsumer({**config, "headers.propagate": ["correlation_id"]})
 
 ## Batch consumption
 
-`AvroConsumer.batches()` yields lists of messages, e.g. for bulk writes:
+`AvroBatchConsumer` is a separate, opt-in iterator of nonempty lists of messages:
 
 ```python
-consumer = AvroConsumer({
-    ...,
-    "batch_max_size": 10,  # default 10
-    "batch_max_wait": 1.0,  # seconds, default 1.0
-})
+from confluent_kafka_helpers.consumer import AvroBatchConsumer
 
-def handle_batch(batch):
-    bulk_write([message.value for message in batch])
+with AvroBatchConsumer(config, batch_size=100, timeout=0.1) as consumer:
+    for batch in consumer:
+        with producer.delivery_scope(timeout=30.0):
+            bulk_write([message.value for message in batch])
+            producer.produce_many(
+                {"value": build_event(message), "source": message}
+                for message in batch
+            )
+        consumer.commit_batch(batch)
 ```
 
 Usually you pass the handler to eventsourcing_helpers (`consume_batches(handle_batch)`), which
-iterates `consumer.batches()` and commits the offsets after the handler returns.
+coordinates output delivery and commits after successful handling.
 
-- Each `consume()` read returns up to `batch_max_size` messages. `batch_max_wait` bounds
-  the wait from the start of the read, including when idle. With `non_blocking`, reads are
-  also capped at `poll_timeout` and empty reads yield `[]`. Blocking mode skips empty reads.
-- `batches()` stops reading when shutdown has already been requested. If
+- Each native `consume()` read returns up to `batch_size` messages (default 100).
+  `timeout` bounds the read in seconds (default 0.1), including when idle. Empty reads are skipped.
+  The size must be an integer from 1 to 1,000,000; timeout must be finite and nonnegative.
+- Batch iteration stops reading when shutdown has already been requested. If
   shutdown is requested while a native `consume()` call is in progress, records
   returned by that read are not yielded and remain unprocessed for Kafka
   redelivery.
-- On EOF with `stop_on_eof`, the partial batch is yielded, then iteration stops.
-- `batches()` requires `enable.auto.commit=False` (the default) and raises `ValueError`
-  otherwise, so closing the consumer cannot automatically commit discarded records.
-- If you iterate `batches()` yourself, commit after each batch: `commit()` without arguments
-  commits everything polled so far, i.e. the whole batch.
-- Don't mix `batches()` and per-message iteration on the same consumer.
+- With `stop_on_eof`, finish all assigned partitions, yield remaining data, then stop.
+- The batch consumer disables automatic commits and offset storage, rejecting settings that
+  enable either. It rejects `get_message`, `poll_timeout`, `non_blocking` and the previous
+  experimental `batch_max_size` / `batch_max_wait` keys. Use constructor arguments instead.
+- `commit_batch(messages)` synchronously commits the highest supplied offset plus one per
+  topic-partition. Supply only successful prefixes per partition: committing a later record
+  acknowledges earlier records too. Partition errors and assignment loss propagate without retry.
+  Stop on fetch, processing, delivery or commit failure and let Kafka replay uncommitted input.
+- Use `AvroConsumer` for single-message iteration; its API remains unchanged.
+- Preserve record order within each partition when handling batches. Kafka has no global order
+  across partitions, and parallel handlers can reorder effects even within a partition.
 - **Handlers must be idempotent.** Delivery is at-least-once per batch: if the process crashes,
   the handler raises, the commit fails or a rebalance happens before the commit, the whole batch
   is delivered again, including messages whose db writes were already committed.
@@ -152,20 +160,28 @@ def handle_message(message):
 def handle_batch(batch):
     for message in batch:
         handle_message(message)
-    producer.flush()
 ```
 
-`produce()` only queues the message in the producer's buffer, and the batch's offsets are
-committed right after the handler returns. We recommend flushing the producer before that, e.g.
-`producer.flush()` at the end of the handler. With eventsourcing_helpers you can instead set
-`"flush": True` in the producer config, which flushes after every `produce()`. Without a flush, a
-crash after the commit (e.g. `SIGKILL` or OOM, which skip the flush on exit) loses the queued
-messages, and they are not produced again because the input messages count as consumed. The
-same applies when consuming one message at a time.
+`produce()` and `produce_many()` only queue output. Wrap processing in
+`producer.delivery_scope(timeout=30.0)` before committing input. The scope tracks **all** calls
+on that producer, including ordinary `produce()` calls from existing handlers. It preserves
+configured and per-record callbacks, bounds queue waits and confirms delivery before successful
+exit. Delivery failures, callback failures, timeouts or outstanding output prevent acknowledgement.
+The timeout starts at scope entry and covers queue waits and delivery confirmation; it cannot
+interrupt application work or schema-registry requests. Join workers before leaving the scope.
+Do not share that producer with unrelated work during a scope; nested scopes are rejected.
 
-If you produce from data that you collected during the batch, keep a reference to the source
-message with that data. Explicit `headers=` passed to `produce()` override propagated headers with
-the same key.
+`produce_many(records, timeout=30.0)` queues ordinary asynchronous `produce()` calls in supplied
+order, allowing librdkafka to batch network traffic while preserving headers. Outside a scope,
+its timeout bounds queue-space waits, not delivery. It retries only the rejected record on a full
+queue. A scope uses its own shared deadline instead.
+
+For collected bulk results, keep the input message and pass `source=message` to `produce()` or
+each `produce_many` entry. This selects its propagation snapshot and incoming trace without an
+ambient message scope. Explicit business headers override propagated headers with the same key.
+Without a source or per-message scope, output inherits the batch trace but no input's business
+headers. Producer idempotence does not deduplicate application replay or make database writes
+and Kafka publication atomic; applications must make both effects replay-safe.
 
 ### Tracing
 
@@ -190,11 +206,10 @@ def handle_message(message):
 def handle_batch(batch):
     with ThreadPoolExecutor(max_workers=8) as executor:
         list(executor.map(handle_message, batch))
-    producer.flush()
 ```
 
 OpenTelemetry keeps at most 128 links per span by default and silently drops the rest. If you raise
-`batch_max_size` above 128, also raise `OTEL_SPAN_LINK_COUNT_LIMIT`.
+`batch_size` above 128, also raise `OTEL_SPAN_LINK_COUNT_LIMIT`.
 
 ## OpenTelemetry (OTEL)
 

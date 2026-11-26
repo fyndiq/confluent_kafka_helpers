@@ -3,19 +3,21 @@ from unittest.mock import ANY, MagicMock, Mock, call, patch
 
 import pytest
 from confluent_kafka import KafkaError as ConfluentKafkaError
-from confluent_kafka import KafkaException
+from confluent_kafka import KafkaException, TopicPartition
 from confluent_kafka.avro import loads
+from confluent_kafka.avro.serializer import SerializerError
 from confluent_kafka.avro.serializer.message_serializer import MessageSerializer
 from opentelemetry.context import Context
 from opentelemetry.trace import SpanKind
 
 import confluent_kafka_helpers
 from confluent_kafka_helpers.consumer import (
+    AvroBatchConsumer,
     default_error_handler,
     get_message,
     is_kafka_transient_error,
 )
-from confluent_kafka_helpers.context import get_propagated_headers
+from confluent_kafka_helpers.context import get_propagated_headers, propagated_headers
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 
 from tests.kafka import KafkaError, KafkaMessage
@@ -202,15 +204,15 @@ class TestAvroConsumer:
         set_propagated_headers.assert_called_once_with({})
 
     def test_batch_config_defaults(self, avro_consumer):
-        consumer = avro_consumer()
-        assert consumer.batch_max_size == 10
-        assert consumer.batch_max_wait == 1.0
+        consumer = avro_consumer(consumer_class=AvroBatchConsumer)
+        assert consumer.batch_size == 100
+        assert consumer.timeout == 0.1
 
     def test_batch_config_is_popped_from_kafka_config(self, avro_consumer):
-        consumer = avro_consumer(config_override={"batch_max_size": 5, "batch_max_wait": 2.5})
+        consumer = avro_consumer(consumer_class=AvroBatchConsumer, batch_size=5, timeout=2.5)
 
-        assert consumer.batch_max_size == 5
-        assert consumer.batch_max_wait == 2.5
+        assert consumer.batch_size == 5
+        assert consumer.timeout == 2.5
         kafka_config = consumer._mock_consumer.call_args.args[0]
         assert "batch_max_size" not in kafka_config
         assert "batch_max_wait" not in kafka_config
@@ -446,8 +448,11 @@ class TestGracefulShutdown:
 
 @pytest.fixture
 def batch_consumer(avro_consumer):
-    def _create(items, config_override=None):
-        consumer = avro_consumer(config_override=config_override)
+    def _create(items, config_override=None, **kwargs):
+        config_override = dict(config_override or {})
+        consumer = avro_consumer(
+            config_override=config_override, consumer_class=AvroBatchConsumer, **kwargs
+        )
         pending = list(items)
 
         def read(num_messages, timeout):
@@ -464,21 +469,118 @@ def batch_consumer(avro_consumer):
         consumer.consumer.consume = Mock(side_effect=read)
         consumer.consumer._serializer = Mock()
         consumer.consumer._serializer.decode_message.side_effect = lambda data, is_key: data
+        consumer.consumer.assignment.return_value = [TopicPartition("test", 1)]
+        consumer.consumer.commit.return_value = []
         return consumer
 
     return _create
 
 
 class TestAvroConsumerBatches:
+    def test_explicit_error_handler_can_skip_record(self, batch_consumer, confluent_message):
+        bad = confluent_message()
+        error = ConfluentKafkaError(ConfluentKafkaError._TRANSPORT)
+        bad.error.return_value = error
+        handler = Mock()
+        consumer = batch_consumer([bad, confluent_message()], error_handler=handler)
+        assert [len(batch) for batch in consumer] == [1]
+        handler.assert_called_once_with(error)
+
+    def test_rejects_single_message_hook(self, batch_consumer):
+        with pytest.raises(TypeError, match="get_message"):
+            batch_consumer([], get_message=Mock())
+
+    @pytest.mark.parametrize("size", [0, -1, True, 1.0, 1_000_001])
+    def test_invalid_size(self, batch_consumer, size):
+        with pytest.raises(ValueError, match="batch_size"):
+            batch_consumer([], batch_size=size)
+
+    @pytest.mark.parametrize("timeout", [True, -1, float("inf"), float("nan"), "1"])
+    def test_invalid_timeout(self, batch_consumer, timeout):
+        with pytest.raises(ValueError, match="timeout"):
+            batch_consumer([], timeout=timeout)
+
+    @pytest.mark.parametrize("option", ["poll_timeout", "non_blocking", "batch_max_size"])
+    def test_rejects_polling_options(self, batch_consumer, option):
+        with pytest.raises(ValueError, match=option):
+            batch_consumer([], {option: 1})
+
+    def test_rejects_automatic_offset_storage(self, batch_consumer):
+        with pytest.raises(ValueError, match="enable.auto.offset.store"):
+            batch_consumer([], {"enable.auto.offset.store": True})
+
+    def test_commits_explicit_offsets_per_partition(self, batch_consumer, confluent_message):
+        records = [confluent_message() for _ in range(3)]
+        for record, partition, offset in zip(records, [0, 1, 0], [4, 9, 6]):
+            record.partition.return_value = partition
+            record.offset.return_value = offset
+        consumer = batch_consumer(records)
+        batch = next(consumer)
+        consumer.commit_batch(batch)
+        offsets = consumer.consumer.commit.call_args.kwargs
+        assert offsets["asynchronous"] is False
+        assert [(p.topic, p.partition, p.offset) for p in offsets["offsets"]] == [
+            ("test", 0, 7),
+            ("test", 1, 10),
+        ]
+        assert consumer.config["enable.auto.commit"] is False
+        assert consumer.config["enable.auto.offset.store"] is False
+        consumer.commit_batch([])
+        assert consumer.consumer.commit.call_count == 1
+
+    @pytest.mark.parametrize("partition_error", [True, False])
+    def test_commit_propagates_assignment_loss(
+        self, batch_consumer, confluent_message, partition_error
+    ):
+        consumer = batch_consumer([confluent_message()])
+        batch = next(consumer)
+        error = ConfluentKafkaError(ConfluentKafkaError._ASSIGNMENT_LOST)
+        if partition_error:
+            consumer.consumer.commit.return_value = [Mock(error=error)]
+        else:
+            consumer.consumer.commit.side_effect = KafkaException(error)
+        with pytest.raises(KafkaException):
+            consumer.commit_batch(batch)
+        consumer.consumer.commit.assert_called_once()
+
+    def test_waits_for_eof_in_all_partitions(self, batch_consumer, confluent_message):
+        def eof(partition):
+            record = confluent_message()
+            record.partition.return_value = partition
+            record.error.return_value = ConfluentKafkaError(ConfluentKafkaError._PARTITION_EOF)
+            return record
+
+        message = confluent_message()
+        consumer = batch_consumer([], {"stop_on_eof": True})
+        consumer.consumer.assignment.return_value = [
+            TopicPartition("test", 0),
+            TopicPartition("test", 1),
+        ]
+        consumer.consumer.consume.side_effect = [[eof(0)], [message], [eof(1)]]
+        assert [len(batch) for batch in consumer] == [1]
+        assert consumer.consumer.consume.call_count == 3
+        callbacks = consumer.consumer.subscribe.call_args.kwargs
+        callbacks["on_lost"](consumer.consumer, [TopicPartition("test", 0)])
+        assert ("test", 0) not in consumer._eof_partitions
+
+    def test_restores_ambient_headers_on_close(self, batch_consumer, confluent_message):
+        with propagated_headers({"outside": "scope"}):
+            with batch_consumer([confluent_message()]) as consumer:
+                next(consumer)
+                assert get_propagated_headers() == {}
+            assert get_propagated_headers() == {"outside": "scope"}
+
+    def test_decode_failure_terminates_fetch(self, batch_consumer, confluent_message):
+        consumer = batch_consumer([confluent_message(), confluent_message()])
+        consumer.consumer._serializer.decode_message.side_effect = SerializerError("bad avro")
+        with pytest.raises(SerializerError, match="offset 0"):
+            next(consumer)
+        assert list(consumer) == []
+        consumer.consumer.consume.assert_called_once()
+
     def test_rejects_auto_commit_before_reading(self, batch_consumer, confluent_message):
-        consumer = batch_consumer(
-            [confluent_message()], config_override={"enable.auto.commit": True}
-        )
-
-        with pytest.raises(ValueError, match=r"batches\(\) requires enable.auto.commit=False"):
-            consumer.batches()
-
-        consumer.consumer.consume.assert_not_called()
+        with pytest.raises(ValueError, match="enable.auto.commit"):
+            batch_consumer([confluent_message()], config_override={"enable.auto.commit": True})
 
     def test_auto_commit_still_allows_per_message_iteration(self, avro_consumer):
         consumer = avro_consumer(config_override={"enable.auto.commit": True})
@@ -493,10 +595,10 @@ class TestAvroConsumerBatches:
         partial_size = batch_size // 2
         consumer = batch_consumer(
             [message] * (2 * batch_size + partial_size),
-            config_override={"batch_max_size": batch_size},
+            batch_size=batch_size,
         )
 
-        batches = list(consumer.batches())
+        batches = list(consumer)
 
         assert [len(b) for b in batches] == [batch_size, batch_size, partial_size]
         assert all(m.value == b"foobar" for b in batches for m in b)
@@ -504,7 +606,7 @@ class TestAvroConsumerBatches:
     def test_blocking_idle_consumer_yields_nothing(self, batch_consumer):
         consumer = batch_consumer([None, None, None])
 
-        assert list(consumer.batches()) == []
+        assert list(consumer) == []
 
     def test_no_batches_if_shutdown_requested_before_iteration(
         self, batch_consumer, confluent_message
@@ -512,14 +614,14 @@ class TestAvroConsumerBatches:
         consumer = batch_consumer([confluent_message()])
         confluent_kafka_helpers.set_shutdown_requested()
 
-        assert list(consumer.batches()) == []
+        assert list(consumer) == []
         consumer.consumer.consume.assert_not_called()
 
     def test_does_not_yield_partial_batch_when_shutdown_requested_during_read(
         self, batch_consumer, confluent_message
     ):
         message = confluent_message()
-        consumer = batch_consumer([message, message], config_override={"batch_max_size": 10})
+        consumer = batch_consumer([message, message], batch_size=10, timeout=1.0)
 
         def consume_then_shutdown(num_messages, timeout):
             confluent_kafka_helpers.set_shutdown_requested()
@@ -527,14 +629,14 @@ class TestAvroConsumerBatches:
 
         consumer.consumer.consume = Mock(side_effect=consume_then_shutdown)
 
-        assert list(consumer.batches()) == []
+        assert list(consumer) == []
         consumer.consumer.consume.assert_called_once_with(num_messages=10, timeout=1.0)
 
     def test_context_manager_closes_batch_generator(self, batch_consumer, confluent_message):
-        consumer = batch_consumer([confluent_message()], config_override={"batch_max_size": 1})
+        consumer = batch_consumer([confluent_message()], batch_size=1)
 
         with consumer:
-            batches = consumer.batches()
+            batches = consumer._generator
             next(batches)
 
         assert inspect.getgeneratorstate(batches) == inspect.GEN_CLOSED
@@ -550,39 +652,34 @@ class TestAvroConsumerBatches:
         tombstone = confluent_message()
         tombstone.set_key(None)
         tombstone.set_value(None)
-        consumer = batch_consumer([message, tombstone], {"batch_max_size": 10, "batch_max_wait": 2})
+        consumer = batch_consumer([message, tombstone], batch_size=10, timeout=2)
         consumer.consumer._serializer = serde
 
-        (batch,) = list(consumer.batches())
+        (batch,) = list(consumer)
 
         assert [(m._meta.key, m.value) for m in batch] == [("key", "value"), (None, None)]
         assert batch[0]._raw is message
         assert (message.key(), message.value()) == (wire_key, wire_value)
         assert consumer.consumer.consume.call_args_list[0] == call(num_messages=10, timeout=2)
 
-    def test_non_blocking_yields_empty_batch_on_each_idle_poll(
-        self, batch_consumer, confluent_message
-    ):
-        consumer = batch_consumer(
-            [None, None, confluent_message()], config_override={"non_blocking": True}
-        )
+    def test_skips_empty_reads(self, batch_consumer, confluent_message):
+        consumer = batch_consumer([None, None, confluent_message()])
+        assert [len(b) for b in consumer] == [1]
 
-        assert [len(b) for b in consumer.batches()] == [0, 0, 1]
-
-    def test_non_blocking_yields_partial_read_immediately(self, batch_consumer, confluent_message):
+    def test_yields_partial_read(self, batch_consumer, confluent_message):
         message = confluent_message()
-        consumer = batch_consumer([message, None, message], config_override={"non_blocking": True})
+        consumer = batch_consumer([message, None, message], timeout=0.1)
 
-        assert [len(b) for b in consumer.batches()] == [1, 1]
-        consumer.consumer.consume.assert_called_with(num_messages=10, timeout=0.1)
+        assert [len(b) for b in consumer] == [1, 1]
+        consumer.consumer.consume.assert_called_with(num_messages=100, timeout=0.1)
 
     def test_stop_on_eof_yields_partial_batch_then_stops(self, batch_consumer, confluent_message):
         eof = confluent_message()
         eof.error.return_value = KafkaError(_code=ConfluentKafkaError._PARTITION_EOF)
         message = confluent_message()
-        consumer = batch_consumer([message, eof, message, None, message], {"stop_on_eof": True})
+        consumer = batch_consumer([message, message, eof, None, message], {"stop_on_eof": True})
 
-        batches = list(consumer.batches())
+        batches = list(consumer)
 
         assert [len(b) for b in batches] == [2]
 
@@ -595,7 +692,7 @@ class TestAvroConsumerBatches:
 
         yielded = []
         with pytest.raises(KafkaException):
-            for batch in consumer.batches():
+            for batch in consumer:
                 yielded.append(batch)
 
         assert yielded == []
@@ -608,7 +705,7 @@ class TestAvroConsumerBatches:
         message = confluent_message()
         consumer = batch_consumer([message] * 3)
 
-        list(consumer.batches())
+        list(consumer)
 
         tracer.start_span.assert_called_once_with(
             name="kafka.consume",
@@ -632,7 +729,7 @@ class TestAvroConsumerBatches:
         other.topic.return_value = "other"
         consumer = batch_consumer([confluent_message(), other])
 
-        list(consumer.batches())
+        list(consumer)
 
         assert tracer.start_span.call_args.kwargs["resource_name"] == "other,test"
         span = tracer.start_span.return_value.__enter__.return_value
@@ -647,7 +744,7 @@ class TestAvroConsumerBatches:
             config_override={"headers.propagate": ["x-request-id"]},
         )
 
-        list(consumer.batches())
+        list(consumer)
 
         set_propagated_headers.assert_not_called()
 
@@ -657,7 +754,7 @@ class TestAvroConsumerBatches:
     ):
         consumer = batch_consumer([confluent_message()] * 3)
 
-        list(consumer.batches())
+        list(consumer)
 
         statsd.increment.assert_called_once_with(
             "confluent_kafka_helpers.consumer.message.count.total", 3
@@ -675,10 +772,8 @@ class TestPropagatedHeadersWhileHandling:
             confluent_message(headers=[("correlation_id", b"second")]),
         ]
 
-    def test_single_consume_sets_each_messages_headers(self, batch_consumer, messages):
-        consumer = batch_consumer(
-            messages, config_override={"headers.propagate": ["correlation_id"]}
-        )
+    def test_single_consume_sets_each_messages_headers(self, avro_consumer, messages):
+        consumer = avro_consumer(config_override={"headers.propagate": ["correlation_id"]})
 
         def poll(timeout):
             if messages:
@@ -694,7 +789,7 @@ class TestPropagatedHeadersWhileHandling:
         consumer = batch_consumer(
             messages, config_override={"headers.propagate": ["correlation_id"]}
         )
-        (batch,) = list(consumer.batches())  # e.g. after the bulk db write is committed
+        (batch,) = list(consumer)  # e.g. after the bulk db write is committed
 
         seen = []
         for message in batch:
@@ -709,7 +804,7 @@ class TestPropagatedHeadersWhileHandling:
         consumer = batch_consumer(
             messages, config_override={"headers.propagate": ["correlation_id"]}
         )
-        (first, second) = next(consumer.batches())
+        (first, second) = next(consumer)
 
         with first.propagate():
             with second.propagate():

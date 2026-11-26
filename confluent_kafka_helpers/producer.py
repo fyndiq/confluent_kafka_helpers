@@ -1,5 +1,10 @@
 import atexit
+import math
 import socket
+import threading
+import time
+from contextlib import contextmanager
+from typing import Any, Iterable, Iterator
 
 import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
@@ -12,6 +17,8 @@ from confluent_kafka_helpers.callbacks import (
     get_callback,
 )
 from confluent_kafka_helpers.context import get_propagated_headers
+from confluent_kafka_helpers.exceptions import KafkaDeliveryError
+from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import datadog, tracer
@@ -26,6 +33,92 @@ class TopicNotRegistered(Exception):
     """
 
     pass
+
+
+class DeliveryScope:
+    """Track all calls on one producer, including ordinary fallback publications.
+
+    A producer must not be shared with unrelated work during a scope. Join worker
+    threads before leaving it. Nested scopes on the same producer are rejected.
+    """
+
+    def __init__(self, producer: "AvroProducer", timeout: float):
+        self._producer = producer
+        self._deadline = time.monotonic() + timeout
+        self._pending = 0
+        self._failure: Exception | None = None
+        self._lock = threading.Lock()
+
+    def _check(self):
+        with self._lock:
+            if self._failure is not None:
+                raise self._failure
+            if time.monotonic() >= self._deadline:
+                self._failure = TimeoutError("Kafka batch delivery timed out")
+                raise self._failure
+
+    def _produce(self, args):
+        self._check()
+        args = dict(args)
+        callback = args.pop("callback", None)
+        callback = args.pop("on_delivery", None) or callback
+        with self._lock:
+            self._pending += 1
+
+        def delivered(error, message):
+            try:
+                try:
+                    self._producer._delivery_callback(error, message)
+                finally:
+                    if callback is not None:
+                        callback(error, message)
+                if error:
+                    raise KafkaDeliveryError(str(error), message)
+            except Exception as failure:
+                with self._lock:
+                    if self._failure is None:
+                        self._failure = failure
+            finally:
+                with self._lock:
+                    self._pending -= 1
+
+        try:
+            while True:
+                self._check()
+                try:
+                    self._producer._produce_once(**args, on_delivery=delivered)
+                    return
+                except BufferError:
+                    self._producer.poll(max(0, min(self._deadline - time.monotonic(), 0.1)))
+        except Exception as failure:
+            with self._lock:
+                self._pending -= 1
+                if self._failure is None:
+                    self._failure = failure
+            raise
+
+    def produce_many(self, records: Iterable[dict[str, Any]]) -> None:
+        try:
+            self._producer.produce_many(records)
+        except Exception as failure:
+            with self._lock:
+                if self._failure is None:
+                    self._failure = failure
+            raise
+
+    def _confirm(self):
+        with self._lock:
+            if self._failure is not None:
+                raise self._failure
+            if not self._pending:
+                return
+        self._check()
+        outstanding = self._producer.flush(max(0, self._deadline - time.monotonic()))
+        with self._lock:
+            if self._failure is not None:
+                raise self._failure
+            if outstanding or self._pending:
+                raise TimeoutError("Kafka batch still has unconfirmed output")
 
 
 class AvroProducer(ConfluentAvroProducer):
@@ -49,6 +142,8 @@ class AvroProducer(ConfluentAvroProducer):
         config["on_delivery"] = get_callback(
             config.pop("on_delivery", None), default_on_delivery_cb
         )
+        self._delivery_callback = config["on_delivery"]
+        self._active_delivery_scope: DeliveryScope | None = None
         config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
         config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
 
@@ -103,8 +198,27 @@ class AvroProducer(ConfluentAvroProducer):
 
         return topic_schemas
 
-    def produce(self, value, key=None, topic=None, headers=None, **kwargs):
-        propagated_headers = get_propagated_headers()
+    @property
+    def in_delivery_scope(self) -> bool:
+        return self._active_delivery_scope is not None
+
+    def produce(
+        self, value, key=None, topic=None, headers=None, *, source: Message | None = None, **kwargs
+    ):
+        args = dict(value=value, key=key, topic=topic, headers=headers, source=source, **kwargs)
+        if self._active_delivery_scope is not None:
+            return self._active_delivery_scope._produce(args)
+        return self._produce_once(**args)
+
+    def _produce_once(
+        self, value, key=None, topic=None, headers=None, *, source: Message | None = None, **kwargs
+    ):
+        span_options: dict[str, Any] = {}
+        if source is None:
+            propagated_headers = get_propagated_headers()
+        else:
+            propagated_headers = source.propagated_headers
+            span_options["context"] = tracer.extract_headers(headers=source._meta.headers)
         logger.debug("Retrieved propagated headers", headers=propagated_headers)
         headers = {**propagated_headers, **(headers or {})}
 
@@ -115,7 +229,7 @@ class AvroProducer(ConfluentAvroProducer):
             raise TopicNotRegistered(f"Topic {topic} is not registered")
 
         with tracer.start_span(
-            name="kafka.produce", kind=SpanKind.PRODUCER, resource_name=topic
+            name="kafka.produce", kind=SpanKind.PRODUCER, resource_name=topic, **span_options
         ) as span:
             if self.value_serializer:
                 value = self.value_serializer(value)
@@ -172,10 +286,41 @@ class AvroProducer(ConfluentAvroProducer):
                 **kwargs,
             )
 
+    @contextmanager
+    def delivery_scope(self, timeout: float = 30.0) -> Iterator[DeliveryScope]:
+        """Confirm all output from this producer before successful scope exit."""
+        if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError("delivery timeout must be finite and positive")
+        if self.in_delivery_scope:
+            raise RuntimeError("Nested delivery scopes on one producer are not supported")
+        delivery = DeliveryScope(self, timeout)
+        self._active_delivery_scope = delivery
+        try:
+            yield delivery
+            delivery._confirm()
+        finally:
+            self._active_delivery_scope = None
+
+    def produce_many(self, records: Iterable[dict[str, Any]], *, timeout: float = 30.0) -> None:
+        """Queue records in order; use a delivery scope to confirm them before commit."""
+        if isinstance(timeout, bool) or not math.isfinite(timeout) or timeout < 0:
+            raise ValueError("timeout must be finite and nonnegative")
+        deadline = time.monotonic() + timeout
+        for record in records:
+            while True:
+                try:
+                    self.produce(**record)
+                    break
+                except BufferError as error:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("Kafka producer queue remained full") from error
+                    self.poll(min(remaining, 0.1))
+
     def flush(self, *args, **kwargs):
         with tracer.start_span(name="kafka.flush", kind=SpanKind.PRODUCER):
             logger.info("Flushing producer")
-            super().flush(*args, **kwargs)
+            return super().flush(*args, **kwargs)
 
     def poll(self, *args, **kwargs):
-        super().poll(*args, **kwargs)
+        return super().poll(*args, **kwargs)
