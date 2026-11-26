@@ -2,9 +2,12 @@ from contextlib import ExitStack
 from unittest.mock import ANY, MagicMock, call, patch
 
 import pytest
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import SpanKind, get_current_span
 
 from confluent_kafka_helpers import producer
+from confluent_kafka_helpers.context import propagated_headers_context
+from confluent_kafka_helpers.message import Message
+from confluent_kafka_helpers.tracing import tracer as kafka_tracer
 
 from tests import config
 
@@ -178,3 +181,61 @@ def test_producer_adds_propagated_headers_to_span(get_propagated_headers, tracer
     tracer.start_span().__enter__().set_attribute.assert_any_call(
         "messaging.message.conversation_id", "xyz-789"
     )
+
+
+def test_many_preserves_each_output_source(
+    avro_producer, confluent_avro_producer, confluent_message
+):
+    trace_ids = ["1" * 32, "2" * 32]
+    first, second = [
+        Message(
+            confluent_message(
+                headers=[("origin_action_type", action), ("traceparent", f"00-{tid}-{'a'*16}-01")]
+            ),
+            {"origin_action_type"},
+        )
+        for action, tid in zip([b"first", b"second"], trace_ids)
+    ]
+    with (
+        propagated_headers_context({"origin_action_type": "ambient"}),
+        patch.object(kafka_tracer, "start_span", wraps=kafka_tracer.start_span) as span,
+    ):
+        avro_producer.produce_many(
+            [
+                {"value": "output1", "source": first},
+                {
+                    "value": "output2",
+                    "source": first,
+                    "headers": {"origin_action_type": "override"},
+                },
+                {"value": "output3", "source": second},
+            ]
+        )
+    assert [
+        item.kwargs["headers"]["origin_action_type"]
+        for item in confluent_avro_producer.call_args_list
+    ] == ["first", "override", "second"]
+    assert [
+        get_current_span(item.kwargs["context"]).get_span_context().trace_id
+        for item in span.call_args_list
+    ] == [int(trace_ids[0], 16), int(trace_ids[0], 16), int(trace_ids[1], 16)]
+
+
+def test_many_retries_only_rejected_record(avro_producer, confluent_avro_producer):
+    confluent_avro_producer.side_effect = [None, BufferError(), None, None]
+    with patch.object(producer.AvroProducer, "poll") as poll:
+        avro_producer.produce_many([{"value": "first"}, {"value": "second"}, {"value": "third"}])
+    assert [item.kwargs["value"] for item in confluent_avro_producer.call_args_list] == [
+        "first",
+        "second",
+        "second",
+        "third",
+    ]
+    poll.assert_called_once()
+
+
+def test_many_fails_when_queue_stays_full(avro_producer, confluent_avro_producer):
+    confluent_avro_producer.side_effect = BufferError()
+    with pytest.raises(TimeoutError, match="queue remained full"):
+        avro_producer.produce_many([{"value": "first"}], timeout=0)
+    confluent_avro_producer.assert_called_once()

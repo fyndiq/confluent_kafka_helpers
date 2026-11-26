@@ -1,5 +1,8 @@
 import atexit
+import math
 import socket
+import time
+from typing import Any
 
 import structlog
 from confluent_kafka.avro import AvroProducer as ConfluentAvroProducer
@@ -12,6 +15,7 @@ from confluent_kafka_helpers.callbacks import (
     get_callback,
 )
 from confluent_kafka_helpers.context import get_propagated_headers
+from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.schema_registry import AvroSchemaRegistry, SchemaNotFound
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import datadog, tracer
@@ -49,6 +53,7 @@ class AvroProducer(ConfluentAvroProducer):
         config["on_delivery"] = get_callback(
             config.pop("on_delivery", None), default_on_delivery_cb
         )
+        self.delivery_callback = config["on_delivery"]
         config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
         config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
 
@@ -103,8 +108,15 @@ class AvroProducer(ConfluentAvroProducer):
 
         return topic_schemas
 
-    def produce(self, value, key=None, topic=None, headers=None, **kwargs):
-        propagated_headers = get_propagated_headers()
+    def produce(
+        self, value, key=None, topic=None, headers=None, *, source: Message | None = None, **kwargs
+    ):
+        span_options: dict[str, Any] = {}
+        if source is None:
+            propagated_headers = get_propagated_headers()
+        else:
+            propagated_headers = source.propagated_headers
+            span_options["context"] = tracer.extract_headers(headers=source._meta.headers)
         logger.debug("Retrieved propagated headers", headers=propagated_headers)
         headers = {**propagated_headers, **(headers or {})}
 
@@ -115,7 +127,7 @@ class AvroProducer(ConfluentAvroProducer):
             raise TopicNotRegistered(f"Topic {topic} is not registered")
 
         with tracer.start_span(
-            name="kafka.produce", kind=SpanKind.PRODUCER, resource_name=topic
+            name="kafka.produce", kind=SpanKind.PRODUCER, resource_name=topic, **span_options
         ) as span:
             if self.value_serializer:
                 value = self.value_serializer(value)
@@ -172,10 +184,26 @@ class AvroProducer(ConfluentAvroProducer):
                 **kwargs,
             )
 
+    def produce_many(self, records, *, timeout=30.0):
+        """Enqueue records in order, allowing callbacks to free a full producer queue."""
+        if not math.isfinite(timeout) or timeout < 0:
+            raise ValueError("timeout must be finite and nonnegative")
+        deadline = time.monotonic() + timeout
+        for record in records:
+            while True:
+                try:
+                    self.produce(**record)
+                    break
+                except BufferError as error:
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise TimeoutError("Kafka producer queue remained full") from error
+                self.poll(min(remaining, 0.1))
+
     def flush(self, *args, **kwargs):
         with tracer.start_span(name="kafka.flush", kind=SpanKind.PRODUCER):
             logger.info("Flushing producer")
-            super().flush(*args, **kwargs)
+            return super().flush(*args, **kwargs)
 
     def poll(self, *args, **kwargs):
-        super().poll(*args, **kwargs)
+        return super().poll(*args, **kwargs)

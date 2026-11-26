@@ -23,12 +23,15 @@ def decode_kafka_headers(headers):
 
 
 class Message:
-    __slots__ = ["value", "_raw", "_meta"]
+    __slots__ = ["value", "_raw", "_meta", "propagated_headers"]
 
-    def __init__(self, kafka_message):
+    def __init__(self, kafka_message, propagate_header_keys=()):
         self.value = kafka_message.value()
         self._raw = kafka_message
         self._meta = MessageMetadata(kafka_message)
+        self.propagated_headers = {
+            key: value for key, value in self._meta.headers.items() if key in propagate_header_keys
+        }
 
     def __repr__(self):
         return f"Message(" f"value={self.value}, " f"_raw={self._raw}, " f"_meta={self._meta}" f")"
