@@ -58,6 +58,21 @@ def test_rejects_auto_offsets(setting):
         AvroBatchConsumer({**Config.KAFKA_CONSUMER_CONFIG, setting: "true"})
 
 
+def test_rejects_single_message_hook(consumer_factory):
+    with pytest.raises(TypeError, match="does not support get_message"):
+        consumer_factory(get_message=Mock())
+
+
+def test_batch_error_handler_can_skip_error_record(consumer_factory):
+    error = KafkaError(KafkaError._TRANSPORT)
+    error_handler = Mock()
+    with consumer_factory(error_handler=error_handler) as consumer:
+        consumer.consumer.consume.return_value = [record(1, error=error), record(2)]
+        (message,) = next(consumer)
+        assert message._meta.offset == 2
+        error_handler.assert_called_once_with(error)
+
+
 def test_fetches_batches_in_order_without_losing_tombstones(consumer_factory):
     with consumer_factory(batch_size=2, timeout=0) as consumer:
         consumer.consumer.consume.side_effect = [

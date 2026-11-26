@@ -81,7 +81,7 @@ def is_kafka_transient_error(exc: KafkaException):
     return is_retryable_commit_error(error)
 
 
-class AvroConsumer:
+class _AvroConsumer:
     DEFAULT_CONFIG = {
         "client.id": socket.gethostname(),
         "default.topic.config": {"auto.offset.reset": "earliest"},
@@ -92,17 +92,7 @@ class AvroConsumer:
         "log.thread.name": False,
     }
 
-    def __init__(
-        self,
-        config,
-        get_message: Callable = get_message,
-        error_handler: Callable = default_error_handler,
-        **kwargs,
-    ) -> None:
-        stop_on_eof = config.pop("stop_on_eof", False)
-        poll_timeout = config.pop("poll_timeout", 0.1)
-        self.non_blocking = config.pop("non_blocking", False)
-
+    def __init__(self, config, **kwargs) -> None:
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
         self.config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
@@ -122,14 +112,6 @@ class AvroConsumer:
         self._subscribe()
 
         self._generator = self._message_generator()
-
-        self._get_message = partial(
-            get_message,
-            consumer=self.consumer,
-            error_handler=error_handler,
-            timeout=poll_timeout,
-            stop_on_eof=stop_on_eof,
-        )
 
     def __getattr__(self, name):
         return getattr(self.consumer, name)
@@ -165,6 +147,40 @@ class AvroConsumer:
             self._generator.close()
         finally:
             self.consumer.close()
+
+    def _get_topics(self, config):
+        topics = config.pop("topics", None)
+        assert topics is not None, "You must subscribe to at least one topic"
+
+        if not isinstance(topics, list):
+            topics = [topics]
+
+        return topics
+
+    @property
+    def is_auto_commit(self):
+        return self.config.get("enable.auto.commit", True)
+
+
+class AvroConsumer(_AvroConsumer):
+    def __init__(
+        self,
+        config,
+        get_message: Callable = get_message,
+        error_handler: Callable = default_error_handler,
+        **kwargs,
+    ) -> None:
+        stop_on_eof = config.pop("stop_on_eof", False)
+        poll_timeout = config.pop("poll_timeout", 0.1)
+        self.non_blocking = config.pop("non_blocking", False)
+        super().__init__(config, **kwargs)
+        self._get_message = partial(
+            get_message,
+            consumer=self.consumer,
+            error_handler=error_handler,
+            timeout=poll_timeout,
+            stop_on_eof=stop_on_eof,
+        )
 
     def _message_generator(self):
         while not is_shutdown_requested():
@@ -237,19 +253,6 @@ class AvroConsumer:
                     clear_propagated_headers()
         logger.info("Shutdown requested, exiting consumer loop")
 
-    def _get_topics(self, config):
-        topics = config.pop("topics", None)
-        assert topics is not None, "You must subscribe to at least one topic"
-
-        if not isinstance(topics, list):
-            topics = [topics]
-
-        return topics
-
-    @property
-    def is_auto_commit(self):
-        return self.config.get("enable.auto.commit", True)
-
     @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error, delay=0.1)
     def commit(self, *args, **kwargs):
         try:
@@ -277,12 +280,25 @@ def validate_batch_options(batch_size, timeout):
         raise ValueError("timeout must be finite and nonnegative")
 
 
-class AvroBatchConsumer(AvroConsumer):
+class AvroBatchConsumer(_AvroConsumer):
     """Consume ordered batches and commit their processed offsets explicitly."""
 
-    def __init__(self, config, batch_size=100, timeout=0.1, **kwargs) -> None:
+    def __init__(
+        self,
+        config,
+        batch_size=100,
+        timeout=0.1,
+        *,
+        error_handler: Callable = default_error_handler,
+        **kwargs,
+    ) -> None:
         validate_batch_options(batch_size, timeout)
+        if "get_message" in kwargs:
+            raise TypeError("AvroBatchConsumer does not support get_message")
         config = dict(config)
+        for setting in ("poll_timeout", "non_blocking"):
+            if setting in config:
+                raise ValueError(f"AvroBatchConsumer does not support {setting}")
         for setting in ("enable.auto.commit", "enable.auto.offset.store"):
             if setting in config and str(config[setting]).lower() not in {"false", "0"}:
                 raise ValueError(f"Batch consumption requires {setting}=false")
@@ -290,7 +306,8 @@ class AvroBatchConsumer(AvroConsumer):
 
         self.batch_size = batch_size
         self.timeout = timeout
-        self.stop_on_eof = config.get("stop_on_eof", False)
+        self.stop_on_eof = config.pop("stop_on_eof", False)
+        self._error_handler = error_handler
         self._eof_partitions: set[tuple[str, int]] = set()
         if self.stop_on_eof:
             config["enable.partition.eof"] = True
@@ -319,7 +336,8 @@ class AvroBatchConsumer(AvroConsumer):
                     if error.code() == KafkaError._PARTITION_EOF:
                         self._eof_partitions.add(partition)
                         continue
-                    default_error_handler(error)
+                    self._error_handler(error)
+                    continue
                 self._eof_partitions.discard(partition)
                 try:
                     if raw.value() is not None:

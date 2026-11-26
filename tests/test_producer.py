@@ -6,6 +6,7 @@ from opentelemetry.trace import SpanKind, get_current_span
 
 from confluent_kafka_helpers import producer
 from confluent_kafka_helpers.context import propagated_headers_context
+from confluent_kafka_helpers.exceptions import KafkaDeliveryError
 from confluent_kafka_helpers.message import Message
 from confluent_kafka_helpers.tracing import tracer as kafka_tracer
 
@@ -239,3 +240,35 @@ def test_many_fails_when_queue_stays_full(avro_producer, confluent_avro_producer
     with pytest.raises(TimeoutError, match="queue remained full"):
         avro_producer.produce_many([{"value": "first"}], timeout=0)
     confluent_avro_producer.assert_called_once()
+
+
+def test_delivery_scope_checks_callbacks_before_normal_exit(avro_producer, confluent_avro_producer):
+    callback = MagicMock()
+    with (
+        patch.object(avro_producer, "_delivery_callback") as default_callback,
+        patch.object(avro_producer, "flush") as flush,
+    ):
+        with avro_producer.delivery_scope() as delivery:
+            delivery.produce_many([{"value": "output", "callback": callback}])
+            delivered = confluent_avro_producer.call_args.kwargs["on_delivery"]
+            flush.side_effect = lambda timeout: delivered(None, "sent") or 0
+    flush.assert_called_once()
+    default_callback.assert_called_once_with(None, "sent")
+    callback.assert_called_once_with(None, "sent")
+
+
+def test_delivery_scope_records_failure_reported_during_queue_poll(
+    avro_producer, confluent_avro_producer
+):
+    confluent_avro_producer.side_effect = [None, BufferError(), None]
+    with (
+        patch.object(avro_producer, "_delivery_callback"),
+        patch.object(avro_producer, "poll") as poll,
+        pytest.raises(KafkaDeliveryError, match="delivery failed"),
+    ):
+        with avro_producer.delivery_scope() as delivery:
+            delivery.produce_many([{"value": "first"}])
+            delivered = confluent_avro_producer.call_args.kwargs["on_delivery"]
+            poll.side_effect = lambda timeout: delivered("delivery failed", "first")
+            delivery.produce_many([{"value": "second"}])
+    assert confluent_avro_producer.call_count == 2

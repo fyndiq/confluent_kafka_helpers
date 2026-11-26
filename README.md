@@ -33,7 +33,8 @@ around a single-message handler running inside a batch.
 Kafka orders records within each partition. A batch can include records from
 several partitions, and output order across partitions has no guarantee. Batch
 processing is at least once. Applications own replay-safe state changes and
-output effects. Confirm output delivery before calling `commit_batch(messages)`.
+output effects. Enqueue through `producer.delivery_scope(timeout=30.0)` to
+confirm output delivery before calling `commit_batch(messages)`.
 See the [migration guide](MIGRATION.md) for a complete example and commit rules.
 
 ## Kafka errors and commits

@@ -1,6 +1,6 @@
 # Migrating to Kafka batch processing
 
-Install `confluent-kafka-helpers==1.8.0rc1` to try the batch API with the
+Install `confluent-kafka-helpers==1.8.0rc2` to try the batch API with the
 published prerelease. Choose one mode per processing loop. Use
 `AvroConsumer` for single-message iteration or `AvroBatchConsumer` for
 batch iteration.
@@ -12,6 +12,11 @@ size from 1 through 1,000,000. Each fetch waits up to `timeout` seconds and can
 return a smaller batch. The iterator skips empty fetches. The timeout must be
 finite and nonnegative. The consumer disables automatic commits and offset
 storage, and rejects settings that enable either.
+
+Pass `error_handler=` to handle Kafka fetch errors. A handler that returns
+allows the loop to skip that error record. Batch iteration uses Kafka's
+native fetch and rejects the single-message options `get_message`,
+`poll_timeout`, and `non_blocking`.
 
 This example forwards a topic to another topic with compatible Avro key and
 value schemas. Set the environment variables to your Kafka and Schema Registry
@@ -37,25 +42,25 @@ with AvroBatchConsumer(
     timeout=0.1,
 ) as consumer:
     for batch in consumer:
-        producer.produce_many(
-            {
-                "key": message._meta.key,
-                "value": message.value,
-                "topic": output_topic,
-                "source": message,
-            }
-            for message in batch
-        )
-        if producer.flush(30.0):
-            raise TimeoutError("Kafka output still awaits delivery")
+        with producer.delivery_scope(timeout=30.0) as delivery:
+            delivery.produce_many(
+                {
+                    "key": message._meta.key,
+                    "value": message.value,
+                    "topic": output_topic,
+                    "source": message,
+                }
+                for message in batch
+            )
         consumer.commit_batch(batch)
 ```
 
 `produce_many(records, *, timeout=30.0)` accepts the same record arguments as
-`produce(...)`. Its timeout bounds waits for queue space. The example uses the
-producer's default delivery callback, which raises on delivery errors, and
-checks the outstanding count returned by `flush()`. Commit only after all
-application work and output delivery succeed. `commit_batch(messages)` commits
+`produce(...)`. Its timeout bounds waits for queue space. Inside a delivery
+scope, enqueue through `delivery.produce_many(records)`. The scope checks
+delivery callbacks before exiting successfully and shares one timeout across
+queue waits and delivery confirmation. Commit only after all application
+work and output delivery succeed. `commit_batch(messages)` commits
 the highest processed offset plus one per topic and partition synchronously.
 Pass the processed prefix of each partition so a commit cannot skip pending
 work. Treat a fetch, processing, delivery, or commit error as a reason to stop
