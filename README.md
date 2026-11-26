@@ -22,7 +22,23 @@ Runtime requirements and package metadata are defined in `pyproject.toml`.
 provider and annotated `v<version>` tags. Publishing runs through the release
 workflow. See [Releases](docs/releases.md) for setup, prereleases, and recovery.
 
+## Batch processing
+
+`AvroBatchConsumer(config, batch_size=100, timeout=0.1)` yields nonempty lists of
+up to `batch_size` Avro messages. `AvroProducer.produce_many(records, *, timeout=30.0)`
+queues records in the supplied order. Set `source=message` on an output to use
+that input's propagated headers and trace context. Use `message_context(message)`
+around a single-message handler running inside a batch.
+
+Kafka orders records within each partition. A batch can include records from
+several partitions, and output order across partitions has no guarantee. Batch
+processing is at least once. Applications own replay-safe state changes and
+output effects. Confirm output delivery before calling `commit_batch(messages)`.
+See the [migration guide](MIGRATION.md) for a complete example and commit rules.
+
 ## Kafka errors and commits
+
+These rules apply to `AvroConsumer` and ordinary producer calls.
 
 - Nonfatal global `_TRANSPORT`, `_ALL_BROKERS_DOWN`, `_RESOLVE` and `_TIMED_OUT`
   errors log warnings. Metrics and custom error callbacks still run. Native

@@ -2,7 +2,7 @@
 
 ## Contract
 
-Add opt-in batch consumption and publishing through both libraries, then demonstrate service adoption in article-handler-service. Keep single-message APIs unchanged. One consumer uses either single-message or batch iteration, never both concurrently. Batch processing is at least once: finish database work, confirm Kafka output delivery, then commit explicit input offsets. Failures stop consumption for replay.
+Add opt-in batch consumption and publishing through both libraries, then demonstrate service adoption in article-handler-service. Keep single-message APIs unchanged. One consumer uses either single-message or batch iteration, never both concurrently. Batch processing is at least once. Finish database work, confirm Kafka output delivery, then commit explicit input offsets. Failures stop consumption for replay. Kafka orders records within each partition. Applications own replay-safe state changes and output effects.
 
 Native Consumer.consume(num_messages, timeout) preserves message headers and exists in the locked confluent-kafka 2.8.0. Legacy AvroConsumer only deserializes poll(), so batch records require explicit Avro key/value decoding. Native produce_batch does not support headers; bulk publishing must enqueue ordinary asynchronous produce calls and wait once, allowing librdkafka to batch network traffic.
 
@@ -39,7 +39,7 @@ The application constructs produce_many entries with key=article.id, value=event
 
 Support incremental migration: process contiguous supported command runs in bulk, and dispatch other commands sequentially through their existing handlers inside the per-message context wrapper. Preserve input order; never globally regroup commands by type. Fallbacks retain per-record database costs and must tolerate batch replay.
 
-Full reliable conversion of every command type is separate work. CreateArticle currently returns when an article exists, which can suppress an event after a crash between database commit and publication. Do not claim exactly-once or full replay safety for fallback handlers. Use a transactional outbox with input deduplication before claiming durable output for all commands. Keep batch adoption opt-in.
+Keep batch adoption opt-in. Verify replay safety for each handler before broad rollout. CreateArticle currently returns when an article exists, which can suppress an event after a crash between database commit and publication. The application owns how it handles that gap.
 
 ## Verification and delivery
 
