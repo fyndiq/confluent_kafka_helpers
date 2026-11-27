@@ -791,6 +791,24 @@ class TestAvroConsumerBatches:
         assert tracer.start_span.call_args.kwargs["links"] == ["<link:first>", "<link:second>"]
 
     @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_batch_span_invalid_links_do_not_use_link_budget(
+        self, tracer, batch_consumer, confluent_message, monkeypatch
+    ):
+        monkeypatch.setenv("OTEL_SPAN_LINK_COUNT_LIMIT", "1")
+        invalid_link = Mock()
+        invalid_link.context.is_valid = False
+        valid_link = Mock()
+        valid_link.context.is_valid = True
+        tracer.extract_links.side_effect = [[invalid_link], [valid_link], [Mock()]]
+        consumer = batch_consumer([confluent_message()] * 3)
+
+        list(consumer)
+
+        assert tracer.extract_headers.call_count == 2
+        assert tracer.extract_links.call_count == 2
+        assert tracer.start_span.call_args.kwargs["links"] == [valid_link]
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
     def test_mixed_topic_batch_has_no_destination_name(
         self, tracer, batch_consumer, confluent_message
     ):

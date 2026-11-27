@@ -63,6 +63,11 @@ def _batch_span_link_count_limit() -> int:
         return DEFAULT_BATCH_SPAN_LINK_COUNT_LIMIT
 
 
+def _is_valid_span_link(link: Link) -> bool:
+    span_context = getattr(link, "context", None)
+    return span_context is None or span_context.is_valid
+
+
 @retry_exception(exceptions=[KafkaTransportError])
 def get_message(consumer, error_handler, timeout=0.1, stop_on_eof=False):
     message = consumer.poll(timeout=timeout)
@@ -394,6 +399,8 @@ class AvroBatchConsumer(_AvroConsumer):
                 break
             context = tracer.extract_headers(headers=message._meta.headers)
             for link in tracer.extract_links(context=context):
+                if not _is_valid_span_link(link):
+                    continue
                 links.append(link)
                 if len(links) >= link_limit:
                     break
