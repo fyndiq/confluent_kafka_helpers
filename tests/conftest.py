@@ -14,6 +14,12 @@ from tests import config
 def confluent_message():
     def _make_message(headers=None):
         class PollReturnMock:
+            def set_key(self, key):
+                self.key.return_value = key
+
+            def set_value(self, value):
+                self.value.return_value = value
+
             def __init__(self):
                 self.value = MagicMock(return_value=b"foobar")
                 self.error = MagicMock(return_value=None)
@@ -49,7 +55,9 @@ def confluent_avro_consumer(confluent_message):
 
 @pytest.fixture
 def avro_consumer(confluent_avro_consumer, confluent_message):
-    def _create_consumer(config_override=None, headers=None):
+    def _create_consumer(
+        config_override=None, headers=None, consumer_class=consumer.AvroConsumer, **kwargs
+    ):
         config_data = config.Config.KAFKA_CONSUMER_CONFIG.copy()
         config_data["client.id"] = "<client-id>"
         if config_override:
@@ -65,7 +73,7 @@ def avro_consumer(confluent_avro_consumer, confluent_message):
                     mock_consumer,
                 )
             )
-            avro_consumer = consumer.AvroConsumer(config_data)
+            avro_consumer = consumer_class(config_data, **kwargs)
             setattr(avro_consumer, "_mock_consumer", mock_consumer)
             return avro_consumer
 

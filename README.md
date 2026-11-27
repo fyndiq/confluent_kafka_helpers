@@ -53,7 +53,9 @@ flag is set.
 
 ### Polling the flag from your own code
 
-Long-running handlers can check the flag and bail out early between subtasks:
+`is_shutdown_requested()` is the public API for application and worker layers to
+observe graceful shutdown. Long-running handlers can check the flag and bail out
+early between subtasks:
 
 ```python
 from confluent_kafka_helpers import is_shutdown_requested
@@ -64,6 +66,10 @@ for message in consumer:
         break
     do_step_two(message)
 ```
+
+Batch schedulers should also check `is_shutdown_requested()` before starting
+queued work. Once it returns `True`, do not start new message handlers; leave
+unfinished work for Kafka redelivery.
 
 ### Operational notes
 
@@ -91,6 +97,127 @@ Services can still add more headers with `headers.propagate`, for example:
 ```python
 AvroConsumer({**config, "headers.propagate": ["correlation_id"]})
 ```
+
+## Batch consumption
+
+`AvroBatchConsumer` is a separate, opt-in iterator of nonempty lists of messages:
+
+```python
+from confluent_kafka_helpers.consumer import AvroBatchConsumer
+
+with AvroBatchConsumer(config, batch_size=100, timeout=0.1) as consumer:
+    for batch in consumer:
+        with producer.delivery_scope(timeout=30.0):
+            bulk_write([message.value for message in batch])
+            producer.produce_many(
+                {"value": build_event(message), "source": message}
+                for message in batch
+            )
+        consumer.commit_batch(batch)
+```
+
+Usually you pass the handler to eventsourcing_helpers (`consume_batch(handle_batch)`), which
+coordinates output delivery and commits after successful handling.
+
+See the [batch migration guide](docs/migration_guides/v1.md#opt-in-to-batch-consumption)
+for configuration changes, existing-handler usage and replay rules.
+
+- Each native `consume()` read returns up to `batch_size` messages (default 100).
+  `timeout` bounds the read in seconds (default 0.1), including when idle. Empty reads are skipped.
+  The size must be an integer from 1 to 1,000,000; timeout must be finite and nonnegative.
+- Batch iteration stops reading when shutdown has already been requested. If
+  shutdown is requested while a native `consume()` call is in progress, records
+  returned by that read are not yielded and remain unprocessed for Kafka
+  redelivery.
+- With `stop_on_eof`, finish all assigned partitions, yield remaining data, then stop.
+- The batch consumer disables automatic commits and offset storage, rejecting settings that
+  enable either. It rejects `get_message`, `poll_timeout`, `non_blocking` and the previous
+  experimental `batch_max_size` / `batch_max_wait` keys. Use constructor arguments instead.
+- `commit_batch(messages)` synchronously commits the highest supplied offset plus one per
+  topic-partition. Supply only successful prefixes per partition: committing a later record
+  acknowledges earlier records too. Partition errors and assignment loss propagate without retry.
+  Stop on fetch, processing, delivery or commit failure and let Kafka replay uncommitted input.
+- Use `AvroConsumer` for single-message iteration; its API remains unchanged.
+- Preserve record order within each partition when handling batches. Kafka has no global order
+  across partitions, and parallel handlers can reorder effects even within a partition.
+- **Handlers must be idempotent.** Delivery is at-least-once per batch: if the process crashes,
+  the handler raises, the commit fails or a rebalance happens before the commit, the whole batch
+  is delivered again, including messages whose db writes were already committed.
+
+### Propagated headers
+
+The consumer config `headers.propagate` lists header keys (e.g. `correlation_id`) that
+`producer.produce()` forwards on the messages it produces. When consuming one message at a time,
+this is automatic while the message is handled.
+
+When consuming in batches, wrap each message handler in `message.process()`. Do this inside the
+worker that handles the message. Then every produced message from that handler gets the right
+headers.
+
+```python
+def handle_message(message):
+    with message.process():
+        producer.produce(build_event(message))
+
+
+def handle_batch(batch):
+    for message in batch:
+        handle_message(message)
+```
+
+`produce()` and `produce_many()` only queue output. Wrap processing in
+`producer.delivery_scope(timeout=30.0)` before committing input. The scope tracks **all** calls
+on that producer, including ordinary `produce()` calls from existing handlers. It preserves
+configured and per-record callbacks, bounds queue waits and confirms delivery before successful
+exit. Delivery failures, callback failures, timeouts or outstanding output prevent acknowledgement.
+The timeout starts at scope entry and covers queue waits and delivery confirmation; it cannot
+interrupt application work or schema-registry requests. Join workers before leaving the scope.
+Do not share that producer with unrelated work during a scope; nested scopes are rejected.
+Delivery scopes reject `delivery.report.only.error=True`, since confirming delivery requires
+successful delivery callbacks as well as failures. Ordinary publishing still allows this setting.
+
+`produce_many(records, timeout=30.0)` queues ordinary asynchronous `produce()` calls in supplied
+order, allowing librdkafka to batch network traffic while preserving headers. Outside a scope,
+its timeout bounds queue-space waits, not delivery. It retries only the rejected record on a full
+queue. A scope uses its own shared deadline instead.
+
+For collected bulk results, keep the input message and pass `source=message` to `produce()` or
+each `produce_many` entry. This selects its propagation snapshot and incoming trace without an
+ambient message scope. Explicit business headers override propagated headers with the same key.
+Without a source or per-message scope, output inherits the batch trace but no input's business
+headers. Producer idempotence does not deduplicate application replay or make database writes
+and Kafka publication atomic; applications must make both effects replay-safe.
+
+### Tracing
+
+Each batch gets one `kafka.consume` span. It starts a new trace and links to input message trace
+contexts up to the configured budget. This shows the whole batch.
+
+Each `message.process()` block starts one `kafka.process` span for one message. Work inside the
+block, such as database writes or OpenSearch requests, belongs to that message's trace.
+
+For threaded handlers, put `message.process()` inside the worker function:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+
+def handle_message(message):
+    with message.process():
+        save_to_database(message.value)
+        producer.produce(build_projection_event(message.value))
+
+
+def handle_batch(batch):
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        list(executor.map(handle_message, batch))
+```
+
+OpenTelemetry keeps at most 128 links per span by default and silently drops the rest. The helper
+uses `OTEL_SPAN_LINK_COUNT_LIMIT` as its batch-span link construction budget and defaults to 128.
+Set it to the same value as the tracer provider's span link limit. If the provider limit is set in
+code, the helper cannot infer that from the environment. Every message is still processed normally;
+only batch-span links are capped.
 
 ## OpenTelemetry (OTEL)
 

@@ -1,11 +1,17 @@
+import contextlib
+import os
 import socket
 from functools import partial
-from typing import Callable, Iterable
+from typing import Callable, Collection, Generator, Iterable, Iterator, Protocol
 
 import structlog
 from confluent_kafka import Consumer, KafkaError, KafkaException
+from confluent_kafka import Message as KafkaMessage
+from confluent_kafka import TopicPartition
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
-from opentelemetry.trace import SpanKind
+from confluent_kafka.avro.serializer import SerializerError
+from opentelemetry.context import Context
+from opentelemetry.trace import Link, Span, SpanKind
 
 from confluent_kafka_helpers import is_shutdown_requested
 from confluent_kafka_helpers.callbacks import (
@@ -14,26 +20,52 @@ from confluent_kafka_helpers.callbacks import (
     default_stats_cb,
     get_callback,
 )
-from confluent_kafka_helpers.context import clear_propagated_headers, set_propagated_headers
+from confluent_kafka_helpers.context import (
+    clear_propagated_headers,
+    propagated_headers,
+    set_propagated_headers,
+)
 from confluent_kafka_helpers.exceptions import EndOfPartition, KafkaTransportError
 from confluent_kafka_helpers.message import Message, decode_kafka_headers
 from confluent_kafka_helpers.metrics import base_metric, statsd
 from confluent_kafka_helpers.metrics.callbacks import on_commit_cb_metrics
 from confluent_kafka_helpers.tracing import attributes as attrs
 from confluent_kafka_helpers.tracing import tracer
+from confluent_kafka_helpers.tracing.span_attributes import (
+    set_batch_consume_span_attributes,
+    set_message_span_attributes,
+)
 from confluent_kafka_helpers.utils import (
     is_lost_assignment,
     is_retryable_commit_error,
     retry_exception,
+    validate_timeout,
 )
 
 logger = structlog.get_logger(__name__)
 
 DEFAULT_PROPAGATED_HEADERS: frozenset[str] = frozenset({"origin_action_type", "action_started_at"})
+DEFAULT_BATCH_SPAN_LINK_COUNT_LIMIT = 128
+OTEL_SPAN_LINK_COUNT_LIMIT = "OTEL_SPAN_LINK_COUNT_LIMIT"
 
 
 def get_propagate_header_keys(configured_headers: Iterable[str] | None) -> set[str]:
     return set(DEFAULT_PROPAGATED_HEADERS) | set(configured_headers or [])
+
+
+def _batch_span_link_count_limit() -> int:
+    value = os.getenv(OTEL_SPAN_LINK_COUNT_LIMIT)
+    if value is None:
+        return DEFAULT_BATCH_SPAN_LINK_COUNT_LIMIT
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return DEFAULT_BATCH_SPAN_LINK_COUNT_LIMIT
+
+
+def _is_valid_span_link(link: Link) -> bool:
+    span_context = getattr(link, "context", None)
+    return span_context is None or span_context.is_valid
 
 
 @retry_exception(exceptions=[KafkaTransportError])
@@ -75,7 +107,30 @@ def is_kafka_transient_error(exc: KafkaException):
     return is_retryable_commit_error(error)
 
 
-class AvroConsumer:
+class _AvroDecoder(Protocol):
+    def __call__(self, data: bytes, /, *, is_key: bool) -> object:
+        """Decode wire bytes with the key or value reader schema."""
+
+
+def _decode_batch_record(
+    record: KafkaMessage, decode: _AvroDecoder, propagate_header_keys: Collection[str]
+) -> Message:
+    """Build a decoded message while preserving the original Kafka wire record."""
+    message = Message(record, propagate_header_keys)
+    try:
+        if message.value is not None:
+            message.value = decode(message.value, is_key=False)
+        if message._meta.key is not None:
+            message._meta.key = decode(message._meta.key, is_key=True)
+    except SerializerError as exc:
+        raise SerializerError(
+            f"Message deserialization failed for message at {record.topic()} "
+            f"[{record.partition()}] offset {record.offset()}: {exc}"
+        ) from exc
+    return message
+
+
+class _AvroConsumer:
     DEFAULT_CONFIG = {
         "client.id": socket.gethostname(),
         "default.topic.config": {"auto.offset.reset": "earliest"},
@@ -86,17 +141,7 @@ class AvroConsumer:
         "log.thread.name": False,
     }
 
-    def __init__(
-        self,
-        config,
-        get_message: Callable = get_message,
-        error_handler: Callable = default_error_handler,
-        **kwargs,
-    ) -> None:
-        stop_on_eof = config.pop("stop_on_eof", False)
-        poll_timeout = config.pop("poll_timeout", 0.1)
-        self.non_blocking = config.pop("non_blocking", False)
-
+    def __init__(self, config, **kwargs) -> None:
         self.config = {**self.DEFAULT_CONFIG, **config}
         self.config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
         self.config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
@@ -113,20 +158,15 @@ class AvroConsumer:
 
         logger.info("Initializing consumer", config=self.config)
         self.consumer = ConfluentAvroConsumer(self.config, logger=logger, **kwargs)
-        self.consumer.subscribe(self.topics)
+        self._subscribe()
 
         self._generator = self._message_generator()
 
-        self._get_message = partial(
-            get_message,
-            consumer=self.consumer,
-            error_handler=error_handler,
-            timeout=poll_timeout,
-            stop_on_eof=stop_on_eof,
-        )
-
     def __getattr__(self, name):
         return getattr(self.consumer, name)
+
+    def _subscribe(self):
+        self.consumer.subscribe(self.topics)
 
     def __iter__(self):
         return self
@@ -149,12 +189,43 @@ class AvroConsumer:
         #  - commit offsets (only on auto commit)
         #  - leave consumer group
         logger.info("Closing consumer")
-        self.consumer.close()
-
         # close generator. otherwise, in case of exceptions, it won't be closed until garbage
         # collection occurs, which might lead to unexpected behaviour, eg. spans not closing before
         # sent to the tracing backend
-        self._generator.close()
+        try:
+            self._generator.close()
+        finally:
+            self.consumer.close()
+
+    def _get_topics(self, config):
+        topics = config.pop("topics", None)
+        assert topics is not None, "You must subscribe to at least one topic"
+        return topics if isinstance(topics, list) else [topics]
+
+    @property
+    def is_auto_commit(self):
+        return self.config.get("enable.auto.commit", True)
+
+
+class AvroConsumer(_AvroConsumer):
+    def __init__(
+        self,
+        config,
+        get_message: Callable = get_message,
+        error_handler: Callable = default_error_handler,
+        **kwargs,
+    ) -> None:
+        stop_on_eof = config.pop("stop_on_eof", False)
+        poll_timeout = config.pop("poll_timeout", 0.1)
+        self.non_blocking = config.pop("non_blocking", False)
+        super().__init__(config, **kwargs)
+        self._get_message = partial(
+            get_message,
+            consumer=self.consumer,
+            error_handler=error_handler,
+            timeout=poll_timeout,
+            stop_on_eof=stop_on_eof,
+        )
 
     def _message_generator(self):
         while not is_shutdown_requested():
@@ -185,76 +256,194 @@ class AvroConsumer:
                 context=context,
                 links=tracer.extract_links(context=context),
             ) as span:
-                message = Message(message)
+                with tracer.start_span(name="kafka.create_message"):
+                    message = Message(message, self.propagate_header_keys)
 
-                if message_class:
-                    span.set_attribute("message.class", message_class)
-
-                span.set_attribute(
-                    attrs.MESSAGING_OPERATION_NAME,
-                    attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME,
+                set_message_span_attributes(
+                    span,
+                    topic=message._meta.topic,
+                    partition=message._meta.partition,
+                    offset=message._meta.offset,
+                    key=message._meta.key,
+                    event_class=message_class,
+                    operation_name=attrs.MESSAGING_OPERATION_NAME_VALUE_CONSUME,
+                    operation_type=attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE,
+                    client_id=self.client_id,
+                    consumer_group=self.group_id,
+                    propagated_headers=propagated_headers,
+                    bootstrap_servers=self.bootstrap_servers,
                 )
-                span.set_attribute(
-                    attrs.MESSAGING_OPERATION_TYPE,
-                    attrs.MESSAGING_OPERATION_TYPE_VALUE_RECEIVE,
-                )
-                span.set_attribute(attrs.MESSAGING_CLIENT_ID, self.client_id)
-                span.set_attribute(attrs.MESSAGING_DESTINATION_NAME, message._meta.topic)
-                span.set_attribute(attrs.MESSAGING_CONSUMER_GROUP_NAME, self.group_id)
-                span.set_attribute(
-                    attrs.MESSAGING_DESTINATION_PARTITION_ID, message._meta.partition
-                )
-                span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_OFFSET, message._meta.offset)
 
-                if message._meta.key:
-                    span.set_attribute(attrs.MESSAGING_KAFKA_MESSAGE_KEY, message._meta.key)
-
-                for header_key, header_value in propagated_headers.items():
-                    span.set_attribute(
-                        f"{attrs.PROPAGATED_HEADER_PREFIX}{header_key}", header_value
-                    )
-                if correlation_id := propagated_headers.get(attrs.CORRELATION_ID_HEADER):
-                    span.set_attribute(attrs.MESSAGING_MESSAGE_CONVERSATION_ID, correlation_id)
-
-                server_address, *server_port = self.bootstrap_servers.split(":")
-                span.set_attribute(attrs.SERVER_ADDRESS, server_address)
-                if server_port:
-                    span.set_attribute(attrs.SERVER_PORT, server_port[0])
-
-                yield message
-
-                clear_propagated_headers()
+                try:
+                    yield message
+                finally:
+                    clear_propagated_headers()
         logger.info("Shutdown requested, exiting consumer loop")
-
-    def _get_topics(self, config):
-        topics = config.pop("topics", None)
-        assert topics is not None, "You must subscribe to at least one topic"
-
-        if not isinstance(topics, list):
-            topics = [topics]
-
-        return topics
-
-    @property
-    def is_auto_commit(self):
-        return self.config.get("enable.auto.commit", True)
 
     @retry_exception(exceptions={KafkaException}, condition=is_kafka_transient_error, delay=0.1)
     def commit(self, *args, **kwargs):
-        try:
-            self.consumer.commit(*args, **kwargs)
-        except KafkaException as exc:
-            if not exc.args or not isinstance(exc.args[0], KafkaError):
+        with tracer.start_span(name="kafka.commit", kind=SpanKind.CONSUMER):
+            try:
+                self.consumer.commit(*args, **kwargs)
+            except KafkaException as exc:
+                if not exc.args or not isinstance(exc.args[0], KafkaError):
+                    raise
+                error = exc.args[0]
+                on_commit_cb_metrics(error, None)
+                if is_lost_assignment(error):
+                    logger.warning(
+                        "Kafka assignment lost; offsets were not committed", error=str(error)
+                    )
+                    return
                 raise
-            error = exc.args[0]
-            on_commit_cb_metrics(error, None)
-            # Replaying these offsets after ownership changes could commit stale work.
-            if is_lost_assignment(error):
-                logger.warning(
-                    "Kafka assignment lost; offsets were not committed", error=str(error)
-                )
-                return
-            raise
+
+
+def validate_batch_options(batch_size, timeout):
+    if type(batch_size) is not int or not 1 <= batch_size <= 1_000_000:
+        raise ValueError("batch_size must be an integer from 1 to 1,000,000")
+    validate_timeout(timeout)
+
+
+class AvroBatchConsumer(_AvroConsumer):
+    """Yield ordered batches; acknowledge processed partition prefixes explicitly."""
+
+    def __init__(
+        self,
+        config,
+        batch_size=100,
+        timeout=0.1,
+        *,
+        error_handler: Callable = default_error_handler,
+        **kwargs,
+    ) -> None:
+        validate_batch_options(batch_size, timeout)
+        if "get_message" in kwargs:
+            raise TypeError("AvroBatchConsumer does not support get_message")
+        config = dict(config)
+        for setting in ("poll_timeout", "non_blocking", "batch_max_size", "batch_max_wait"):
+            if setting in config:
+                raise ValueError(f"Use batch_size and timeout; batch consumer rejects {setting}")
+        for setting in ("enable.auto.commit", "enable.auto.offset.store"):
+            if setting in config and str(config[setting]).lower() not in {"false", "0"}:
+                raise ValueError(f"Batch consumption requires {setting}=false")
+            config[setting] = False
+        self.batch_size = batch_size
+        self.timeout = timeout
+        self.stop_on_eof = config.pop("stop_on_eof", False)
+        self._error_handler = error_handler
+        self._eof_partitions: set[tuple[str, int]] = set()
+        if self.stop_on_eof:
+            config["enable.partition.eof"] = True
+        super().__init__(config, **kwargs)
+
+    def _subscribe(self):
+        if self.stop_on_eof:
+            self.consumer.subscribe(
+                self.topics,
+                on_assign=self._reset_eof,
+                on_revoke=self._reset_eof,
+                on_lost=self._reset_eof,
+            )
+        else:
+            super()._subscribe()
+
+    def _reset_eof(self, consumer, partitions):
+        self._eof_partitions.difference_update((p.topic, p.partition) for p in partitions)
+
+    def _message_generator(self) -> Generator[list[Message], None, None]:
+        while not is_shutdown_requested():
+            records = self.consumer.consume(num_messages=self.batch_size, timeout=self.timeout)
+            if is_shutdown_requested():
+                if records:
+                    logger.info(
+                        "Shutdown requested after Kafka batch read; leaving records unprocessed",
+                        records=len(records),
+                    )
+                break
+            messages = []
+            for record in records:
+                partition = (record.topic(), record.partition())
+                if error := record.error():
+                    if error.code() == KafkaError._PARTITION_EOF:
+                        self._eof_partitions.add(partition)
+                        continue
+                    self._error_handler(error)
+                else:
+                    self._eof_partitions.discard(partition)
+                    messages.append(
+                        _decode_batch_record(
+                            record,
+                            self.consumer._serializer.decode_message,
+                            self.propagate_header_keys,
+                        )
+                    )
+            if messages:
+                with propagated_headers({}), self._batch_span(messages):
+                    yield messages
+            if self.stop_on_eof:
+                assigned = {(p.topic, p.partition) for p in self.consumer.assignment()}
+                if assigned and assigned <= self._eof_partitions:
+                    return
+
+    @contextlib.contextmanager
+    def _batch_span(self, messages: list[Message]) -> Iterator[Span]:
+        statsd.increment(  # type: ignore[attr-defined]
+            f"{base_metric}.consumer.message.count.total", len(messages)
+        )
+
+        topics = sorted({m._meta.topic for m in messages})
+        links: list[Link] = []
+        link_limit = _batch_span_link_count_limit()
+        for message in messages:
+            if len(links) >= link_limit:
+                break
+            context = tracer.extract_headers(headers=message._meta.headers)
+            for link in tracer.extract_links(context=context):
+                if not _is_valid_span_link(link):
+                    continue
+                links.append(link)
+                if len(links) >= link_limit:
+                    break
+        # no single message's trace is the rightful parent: start a new trace, link them all
+        with tracer.start_span(
+            name="kafka.consume",
+            kind=SpanKind.CONSUMER,
+            resource_name=",".join(topics),
+            context=Context(),
+            links=links,
+        ) as span:
+            set_batch_consume_span_attributes(
+                span,
+                message_count=len(messages),
+                topics=topics,
+                client_id=self.client_id,
+                consumer_group=self.group_id,
+                bootstrap_servers=self.bootstrap_servers,
+            )
+
+            yield span
+
+    def commit_batch(self, messages: Iterable[Message]) -> None:
+        """Commit only successful prefixes per partition; failures require stop/replay."""
+        offsets: dict[tuple[str, int], int] = {}
+        for message in messages:
+            meta = message._meta
+            partition = (meta.topic, meta.partition)
+            offsets[partition] = max(offsets.get(partition, 0), meta.offset + 1)
+        if not offsets:
+            return
+        partitions = [TopicPartition(*partition, offset) for partition, offset in offsets.items()]
+        with tracer.start_span(name="kafka.commit", kind=SpanKind.CONSUMER):
+            try:
+                result = self.consumer.commit(offsets=partitions, asynchronous=False)
+            except KafkaException as exc:
+                if exc.args and isinstance(exc.args[0], KafkaError):
+                    on_commit_cb_metrics(exc.args[0], None)
+                raise
+            for committed_partition in result:
+                if committed_partition.error is not None:
+                    on_commit_cb_metrics(committed_partition.error, result)
+                    raise KafkaException(committed_partition.error)
 
 
 class AvroLazyConsumer(ConfluentAvroConsumer):

@@ -1,10 +1,15 @@
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
-from unittest.mock import ANY, MagicMock, call, patch
+from unittest.mock import ANY, MagicMock, Mock, call, patch
 
 import pytest
-from opentelemetry.trace import SpanKind
+from opentelemetry.trace import SpanKind, get_current_span
 
 from confluent_kafka_helpers import producer
+from confluent_kafka_helpers.context import propagated_headers
+from confluent_kafka_helpers.exceptions import KafkaDeliveryError
+from confluent_kafka_helpers.message import Message
+from confluent_kafka_helpers.tracing import tracer as kafka_tracer
 
 from tests import config
 
@@ -178,3 +183,204 @@ def test_producer_adds_propagated_headers_to_span(get_propagated_headers, tracer
     tracer.start_span().__enter__().set_attribute.assert_any_call(
         "messaging.message.conversation_id", "xyz-789"
     )
+
+
+def test_many_preserves_sources(avro_producer, confluent_avro_producer, confluent_message):
+    sources = [
+        Message(
+            confluent_message(
+                headers=[
+                    ("origin_action_type", action),
+                    ("traceparent", f"00-{tid * 32}-{'a' * 16}-01"),
+                ]
+            ),
+            {"origin_action_type"},
+        )
+        for action, tid in [(b"first", "1"), (b"second", "2")]
+    ]
+    with (
+        propagated_headers({"origin_action_type": "ambient"}),
+        patch.object(kafka_tracer, "start_span", wraps=kafka_tracer.start_span) as span,
+    ):
+        avro_producer.produce_many(
+            [
+                {"value": "one", "source": sources[0]},
+                {
+                    "value": "two",
+                    "source": sources[0],
+                    "headers": {"origin_action_type": "override"},
+                },
+                {"value": "three", "source": sources[1]},
+            ]
+        )
+    assert [
+        c.kwargs["headers"]["origin_action_type"] for c in confluent_avro_producer.call_args_list
+    ] == ["first", "override", "second"]
+    assert [
+        get_current_span(c.kwargs["context"]).get_span_context().trace_id
+        for c in span.call_args_list
+    ] == [int("1" * 32, 16)] * 2 + [int("2" * 32, 16)]
+
+
+def test_many_retries_only_rejected_record(avro_producer, confluent_avro_producer):
+    confluent_avro_producer.side_effect = [None, BufferError(), None, None]
+    with patch.object(avro_producer, "poll") as poll:
+        avro_producer.produce_many([{"value": v} for v in ["first", "second", "third"]])
+    assert [c.kwargs["value"] for c in confluent_avro_producer.call_args_list] == [
+        "first",
+        "second",
+        "second",
+        "third",
+    ]
+    poll.assert_called_once()
+
+
+def test_many_bounds_queue_wait(avro_producer, confluent_avro_producer):
+    confluent_avro_producer.side_effect = BufferError()
+    with pytest.raises(TimeoutError, match="queue remained full"):
+        avro_producer.produce_many([{"value": "output"}], timeout=0)
+    confluent_avro_producer.assert_called_once()
+
+
+def test_scope_confirms_ordinary_and_collection_output(avro_producer, confluent_avro_producer):
+    callback = Mock()
+    with (
+        patch.object(avro_producer, "_delivery_callback") as default_callback,
+        patch.object(avro_producer, "flush") as flush,
+    ):
+
+        def delivered(timeout):
+            for c in confluent_avro_producer.call_args_list:
+                c.kwargs["on_delivery"](None, "sent")
+            return 0
+
+        flush.side_effect = delivered
+        with avro_producer.delivery_scope() as delivery:
+            assert avro_producer.in_delivery_scope
+            avro_producer.produce("ordinary", callback=callback)
+            delivery.produce_many([{"value": "collection"}])
+    flush.assert_called_once()
+    assert default_callback.call_count == 2
+    callback.assert_called_once_with(None, "sent")
+    assert not avro_producer.in_delivery_scope
+
+
+@pytest.mark.parametrize("failure", ["delivery", "callback", "pending", "outstanding"])
+def test_scope_rejects_unconfirmed_output(avro_producer, confluent_avro_producer, failure):
+    callback = Mock(side_effect=ValueError("callback failed") if failure == "callback" else None)
+
+    def flush(timeout):
+        if failure != "pending":
+            confluent_avro_producer.call_args.kwargs["on_delivery"](
+                "delivery failed" if failure == "delivery" else None, "sent"
+            )
+        return int(failure == "outstanding")
+
+    with (
+        patch.object(avro_producer, "_delivery_callback"),
+        patch.object(avro_producer, "flush", side_effect=flush),
+        pytest.raises((KafkaDeliveryError, ValueError, TimeoutError)),
+    ):
+        with avro_producer.delivery_scope():
+            avro_producer.produce("output", on_delivery=callback)
+    assert not avro_producer.in_delivery_scope
+
+
+def test_scope_catches_early_callback_failure(avro_producer, confluent_avro_producer):
+    confluent_avro_producer.side_effect = [None, BufferError(), None]
+    with (
+        patch.object(avro_producer, "_delivery_callback"),
+        patch.object(avro_producer, "poll") as poll,
+        pytest.raises(KafkaDeliveryError, match="delivery failed"),
+    ):
+        with avro_producer.delivery_scope():
+            avro_producer.produce("first")
+            delivered = confluent_avro_producer.call_args.kwargs["on_delivery"]
+            poll.side_effect = lambda timeout: delivered("delivery failed", "first")
+            avro_producer.produce("second")
+    assert confluent_avro_producer.call_count == 2
+
+
+def test_scope_bounds_ordinary_queue_wait(avro_producer, confluent_avro_producer):
+    confluent_avro_producer.side_effect = BufferError()
+    with (
+        patch.object(avro_producer, "poll"),
+        patch(
+            "confluent_kafka_helpers.producer.time.monotonic",
+            side_effect=[0, 0, 0, 0.05, 1],
+        ),
+        pytest.raises(TimeoutError),
+    ):
+        with avro_producer.delivery_scope(timeout=0.1):
+            avro_producer.produce("output")
+
+
+def test_scope_restores_state_on_handler_failure(avro_producer):
+    with patch.object(avro_producer, "flush") as flush, pytest.raises(ValueError):
+        with avro_producer.delivery_scope():
+            raise ValueError("handler failed")
+    flush.assert_not_called()
+    assert not avro_producer.in_delivery_scope
+
+
+def test_scope_rejects_nesting(avro_producer):
+    with avro_producer.delivery_scope():
+        with pytest.raises(RuntimeError, match="Nested"):
+            with avro_producer.delivery_scope():
+                pass
+
+
+@pytest.mark.parametrize("only_errors", [False, True])
+def test_scope_requires_successful_delivery_reports(
+    only_errors, confluent_avro_producer, avro_schema_registry
+):
+    producer_config = {
+        **config.Config.KAFKA_PRODUCER_CONFIG,
+        "delivery.report.only.error": only_errors,
+    }
+    with patch.object(producer.AvroProducer, "_close"):
+        avro_producer = producer.AvroProducer(producer_config, schema_registry=avro_schema_registry)
+
+    # Error-only reports remain valid for ordinary, unscoped publishing.
+    avro_producer.produce("ordinary")
+    confluent_avro_producer.assert_called_once()
+    entered = Mock()
+    if only_errors:
+        with pytest.raises(ValueError, match="delivery.report.only.error=false"):
+            with avro_producer.delivery_scope():
+                entered()
+        entered.assert_not_called()
+    else:
+        with avro_producer.delivery_scope():
+            entered()
+        entered.assert_called_once()
+    assert not avro_producer.in_delivery_scope
+
+
+def test_scope_tracks_joined_worker_output(avro_producer, confluent_avro_producer):
+    with (
+        patch.object(avro_producer, "_delivery_callback"),
+        patch.object(avro_producer, "flush") as flush,
+    ):
+
+        def delivered(timeout):
+            for c in confluent_avro_producer.call_args_list:
+                c.kwargs["on_delivery"](None, "sent")
+            return 0
+
+        flush.side_effect = delivered
+        with avro_producer.delivery_scope():
+            with ThreadPoolExecutor(max_workers=2) as workers:
+                list(workers.map(avro_producer.produce, ["one", "two"]))
+                workers.submit(avro_producer.finish_producing, flush=True).result()
+            flush.assert_not_called()
+    assert confluent_avro_producer.call_count == 2
+    flush.assert_called_once()
+
+
+def test_scope_retains_caught_enqueue_failure(avro_producer):
+    with patch.object(avro_producer, "_produce_once", side_effect=ValueError("bad output")):
+        with pytest.raises(ValueError, match="bad output"):
+            with avro_producer.delivery_scope():
+                with pytest.raises(ValueError):
+                    avro_producer.produce("output")
