@@ -173,6 +173,8 @@ exit. Delivery failures, callback failures, timeouts or outstanding output preve
 The timeout starts at scope entry and covers queue waits and delivery confirmation; it cannot
 interrupt application work or schema-registry requests. Join workers before leaving the scope.
 Do not share that producer with unrelated work during a scope; nested scopes are rejected.
+Delivery scopes reject `delivery.report.only.error=True`, since confirming delivery requires
+successful delivery callbacks as well as failures. Ordinary publishing still allows this setting.
 
 `produce_many(records, timeout=30.0)` queues ordinary asynchronous `produce()` calls in supplied
 order, allowing librdkafka to batch network traffic while preserving headers. Outside a scope,

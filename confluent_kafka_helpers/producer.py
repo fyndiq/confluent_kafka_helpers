@@ -143,6 +143,7 @@ class AvroProducer(ConfluentAvroProducer):
             config.pop("on_delivery", None), default_on_delivery_cb
         )
         self._delivery_callback = config["on_delivery"]
+        self._delivery_report_only_error = config.get("delivery.report.only.error", False)
         self._active_delivery_scope: DeliveryScope | None = None
         config["error_cb"] = get_callback(config.pop("error_cb", None), default_error_cb)
         config["stats_cb"] = get_callback(config.pop("stats_cb", None), default_stats_cb)
@@ -290,6 +291,8 @@ class AvroProducer(ConfluentAvroProducer):
     def delivery_scope(self, timeout: float = 30.0) -> Iterator[DeliveryScope]:
         """Confirm all output from this producer before successful scope exit."""
         validate_timeout(timeout, name="delivery timeout", allow_zero=False)
+        if self._delivery_report_only_error:
+            raise ValueError("Delivery scopes require delivery.report.only.error=false")
         if self.in_delivery_scope:
             raise RuntimeError("Nested delivery scopes on one producer are not supported")
         delivery = DeliveryScope(self, timeout)

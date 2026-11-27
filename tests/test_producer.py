@@ -330,6 +330,33 @@ def test_scope_rejects_nesting(avro_producer):
                 pass
 
 
+@pytest.mark.parametrize("only_errors", [False, True])
+def test_scope_requires_successful_delivery_reports(
+    only_errors, confluent_avro_producer, avro_schema_registry
+):
+    producer_config = {
+        **config.Config.KAFKA_PRODUCER_CONFIG,
+        "delivery.report.only.error": only_errors,
+    }
+    with patch.object(producer.AvroProducer, "_close"):
+        avro_producer = producer.AvroProducer(producer_config, schema_registry=avro_schema_registry)
+
+    # Error-only reports remain valid for ordinary, unscoped publishing.
+    avro_producer.produce("ordinary")
+    confluent_avro_producer.assert_called_once()
+    entered = Mock()
+    if only_errors:
+        with pytest.raises(ValueError, match="delivery.report.only.error=false"):
+            with avro_producer.delivery_scope():
+                entered()
+        entered.assert_not_called()
+    else:
+        with avro_producer.delivery_scope():
+            entered()
+        entered.assert_called_once()
+    assert not avro_producer.in_delivery_scope
+
+
 def test_scope_tracks_joined_worker_output(avro_producer, confluent_avro_producer):
     with (
         patch.object(avro_producer, "_delivery_callback"),
