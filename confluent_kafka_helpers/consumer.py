@@ -1,4 +1,5 @@
 import contextlib
+import os
 import socket
 from functools import partial
 from typing import Callable, Collection, Generator, Iterable, Iterator, Protocol
@@ -10,7 +11,7 @@ from confluent_kafka import TopicPartition
 from confluent_kafka.avro import AvroConsumer as ConfluentAvroConsumer
 from confluent_kafka.avro.serializer import SerializerError
 from opentelemetry.context import Context
-from opentelemetry.trace import Span, SpanKind
+from opentelemetry.trace import Link, Span, SpanKind
 
 from confluent_kafka_helpers import is_shutdown_requested
 from confluent_kafka_helpers.callbacks import (
@@ -44,10 +45,22 @@ from confluent_kafka_helpers.utils import (
 logger = structlog.get_logger(__name__)
 
 DEFAULT_PROPAGATED_HEADERS: frozenset[str] = frozenset({"origin_action_type", "action_started_at"})
+DEFAULT_BATCH_SPAN_LINK_COUNT_LIMIT = 128
+OTEL_SPAN_LINK_COUNT_LIMIT = "OTEL_SPAN_LINK_COUNT_LIMIT"
 
 
 def get_propagate_header_keys(configured_headers: Iterable[str] | None) -> set[str]:
     return set(DEFAULT_PROPAGATED_HEADERS) | set(configured_headers or [])
+
+
+def _batch_span_link_count_limit() -> int:
+    value = os.getenv(OTEL_SPAN_LINK_COUNT_LIMIT)
+    if value is None:
+        return DEFAULT_BATCH_SPAN_LINK_COUNT_LIMIT
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return DEFAULT_BATCH_SPAN_LINK_COUNT_LIMIT
 
 
 @retry_exception(exceptions=[KafkaTransportError])
@@ -374,13 +387,16 @@ class AvroBatchConsumer(_AvroConsumer):
         )
 
         topics = sorted({m._meta.topic for m in messages})
-        links = [
-            link
-            for m in messages
-            for link in tracer.extract_links(
-                context=tracer.extract_headers(headers=m._meta.headers)
-            )
-        ]
+        links: list[Link] = []
+        link_limit = _batch_span_link_count_limit()
+        for message in messages:
+            if len(links) >= link_limit:
+                break
+            context = tracer.extract_headers(headers=message._meta.headers)
+            for link in tracer.extract_links(context=context):
+                links.append(link)
+                if len(links) >= link_limit:
+                    break
         # no single message's trace is the rightful parent: start a new trace, link them all
         with tracer.start_span(
             name="kafka.consume",

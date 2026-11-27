@@ -190,8 +190,8 @@ and Kafka publication atomic; applications must make both effects replay-safe.
 
 ### Tracing
 
-Each batch gets one `kafka.consume` span. It starts a new trace and links to every message's
-trace context. This shows the whole batch.
+Each batch gets one `kafka.consume` span. It starts a new trace and links to input message trace
+contexts up to the configured budget. This shows the whole batch.
 
 Each `message.process()` block starts one `kafka.process` span for one message. Work inside the
 block, such as database writes or OpenSearch requests, belongs to that message's trace.
@@ -213,8 +213,11 @@ def handle_batch(batch):
         list(executor.map(handle_message, batch))
 ```
 
-OpenTelemetry keeps at most 128 links per span by default and silently drops the rest. If you raise
-`batch_size` above 128, also raise `OTEL_SPAN_LINK_COUNT_LIMIT`.
+OpenTelemetry keeps at most 128 links per span by default and silently drops the rest. The helper
+uses `OTEL_SPAN_LINK_COUNT_LIMIT` as its batch-span link construction budget and defaults to 128.
+Set it to the same value as the tracer provider's span link limit. If the provider limit is set in
+code, the helper cannot infer that from the environment. Every message is still processed normally;
+only batch-span links are capped.
 
 ## OpenTelemetry (OTEL)
 

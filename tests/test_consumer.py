@@ -722,6 +722,75 @@ class TestAvroConsumerBatches:
         span.set_attribute.assert_any_call("server.address", "localhost")
 
     @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_batch_span_uses_default_link_budget(
+        self, tracer, batch_consumer, confluent_message, monkeypatch
+    ):
+        monkeypatch.delenv("OTEL_SPAN_LINK_COUNT_LIMIT", raising=False)
+        tracer.extract_links.return_value = ["<link>"]
+        consumer = batch_consumer([confluent_message()] * 130, batch_size=130)
+
+        list(consumer)
+
+        assert tracer.extract_headers.call_count == 128
+        assert tracer.extract_links.call_count == 128
+        assert tracer.start_span.call_args.kwargs["links"] == ["<link>"] * 128
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_batch_span_uses_env_link_budget(
+        self, tracer, batch_consumer, confluent_message, monkeypatch
+    ):
+        monkeypatch.setenv("OTEL_SPAN_LINK_COUNT_LIMIT", "2")
+        tracer.extract_headers.side_effect = lambda *, headers: headers["traceparent"]
+        tracer.extract_links.side_effect = lambda *, context: [f"<link:{context}>"]
+        messages = [confluent_message(headers=[("traceparent", f"trace-{i}")]) for i in range(4)]
+        consumer = batch_consumer(messages)
+
+        list(consumer)
+
+        assert tracer.extract_headers.call_count == 2
+        assert tracer.extract_links.call_count == 2
+        assert tracer.start_span.call_args.kwargs["links"] == ["<link:trace-0>", "<link:trace-1>"]
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_batch_span_zero_link_budget_skips_extraction(
+        self, tracer, batch_consumer, confluent_message, monkeypatch
+    ):
+        monkeypatch.setenv("OTEL_SPAN_LINK_COUNT_LIMIT", "0")
+        messages = [confluent_message(), confluent_message()]
+        consumer = batch_consumer(messages)
+
+        batches = list(consumer)
+
+        assert [len(batch) for batch in batches] == [2]
+        tracer.extract_headers.assert_not_called()
+        tracer.extract_links.assert_not_called()
+        assert tracer.start_span.call_args.kwargs["links"] == []
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
+    def test_batch_span_missing_trace_contexts_do_not_use_link_budget(
+        self, tracer, batch_consumer, confluent_message, monkeypatch
+    ):
+        monkeypatch.setenv("OTEL_SPAN_LINK_COUNT_LIMIT", "2")
+        tracer.extract_headers.side_effect = lambda *, headers: headers.get("traceparent")
+        tracer.extract_links.side_effect = lambda *, context: (
+            [] if context is None else [f"<link:{context}>"]
+        )
+        messages = [
+            confluent_message(headers=[]),
+            confluent_message(headers=[("traceparent", "first")]),
+            confluent_message(headers=[]),
+            confluent_message(headers=[("traceparent", "second")]),
+            confluent_message(headers=[("traceparent", "third")]),
+        ]
+        consumer = batch_consumer(messages)
+
+        list(consumer)
+
+        assert tracer.extract_headers.call_count == 4
+        assert tracer.extract_links.call_count == 4
+        assert tracer.start_span.call_args.kwargs["links"] == ["<link:first>", "<link:second>"]
+
+    @patch("confluent_kafka_helpers.consumer.tracer")
     def test_mixed_topic_batch_has_no_destination_name(
         self, tracer, batch_consumer, confluent_message
     ):
