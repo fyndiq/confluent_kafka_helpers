@@ -116,8 +116,11 @@ with AvroBatchConsumer(config, batch_size=100, timeout=0.1) as consumer:
         consumer.commit_batch(batch)
 ```
 
-Usually you pass the handler to eventsourcing_helpers (`consume_batches(handle_batch)`), which
+Usually you pass the handler to eventsourcing_helpers (`consume_batch(handle_batch)`), which
 coordinates output delivery and commits after successful handling.
+
+See the [batch migration guide](docs/migration_guides/v1.md#opt-in-to-batch-consumption)
+for configuration changes, existing-handler usage and replay rules.
 
 - Each native `consume()` read returns up to `batch_size` messages (default 100).
   `timeout` bounds the read in seconds (default 0.1), including when idle. Empty reads are skipped.
